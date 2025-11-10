@@ -1,0 +1,5 @@
+{
+  "name": "Prenota Pro - Tennis & Padel",
+  "description": "Un'applicazione per la prenotazione di lezioni di tennis e padel, con integrazione di Google Calendar e salvataggio dei dati su Firebase. Simile a Calendly, permette di gestire facilmente il proprio programma e le prenotazioni.",
+  "requestFramePermissions": []
+}
