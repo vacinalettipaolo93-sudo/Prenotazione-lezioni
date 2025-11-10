@@ -15,28 +15,11 @@ initializeApp();
 const db = getFirestore();
 const app = express();
 
-const allowedOrigins = [
-  "https://gestionale-prenotazioni-lezioni.vercel.app",
-  "https://gestionale-prenotazioni-lezio.web.app",
-  "https://gestionale-prenotazioni-lezio.firebaseapp.com",
-];
+// FIX: Sostituita la policy CORS restrittiva con una più flessibile per lo sviluppo.
+// La nuova configurazione permette dinamicamente all'origine della richiesta in arrivo
+// di accedere, risolvendo gli errori CORS riscontrati durante il deploy su ambienti diversi.
+app.use(cors({origin: true}));
 
-const corsOptions: cors.CorsOptions = {
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.error(`CORS Error: Origin ${origin} not allowed.`);
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  optionsSuccessStatus: 204,
-};
-
-app.options("*", cors(corsOptions));
-app.use(cors(corsOptions));
 app.use(express.json());
 
 const getOauth2Client = () => {
