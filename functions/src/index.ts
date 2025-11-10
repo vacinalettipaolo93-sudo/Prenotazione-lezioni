@@ -7,10 +7,8 @@ import {initializeApp} from "firebase-admin/app";
 import {getFirestore} from "firebase-admin/firestore";
 import {getAuth} from "firebase-admin/auth";
 import {google} from "googleapis";
-// FIX: Use ES module import for express.
-// FIX: Explicitly import Request, Response, and NextFunction types from
-// express to resolve type inference issues.
-import express, {Request, Response, NextFunction} from "express";
+// @google/genai-api-fix: Resolve type conflicts by changing the import style and using fully qualified type names for Express.
+import express from "express";
 import cors from "cors";
 
 initializeApp();
@@ -77,10 +75,11 @@ const getAdminUid = () => {
   return ADMIN_UID;
 };
 
+// @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
 const adminAuthMiddleware = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
 ) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -103,9 +102,10 @@ const adminAuthMiddleware = async (
   }
 };
 
+// @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
 app.post(
   "/getBusySlotsOnBehalfOfAdmin",
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     try {
       const {timeMin, timeMax, calendarIds} = req.body.data;
       if (!timeMin || !timeMax || !calendarIds) {
@@ -159,9 +159,10 @@ app.post(
   }
 );
 
+// @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
 app.post(
   "/createEventOnBehalfOfAdmin",
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     try {
       const data = req.body.data;
       const oauth2Client = getOauth2Client();
@@ -212,10 +213,11 @@ app.post(
   }
 );
 
+// @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
 app.post(
   "/getAuthURL",
   adminAuthMiddleware,
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     const oauth2Client = getOauth2Client();
     const scopes = ["https://www.googleapis.com/auth/calendar"];
     const url = oauth2Client.generateAuthUrl({
@@ -227,8 +229,9 @@ app.post(
   }
 );
 
+// @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
 app.get("/oauthcallback",
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     try {
       const oauth2Client = getOauth2Client();
       const code = req.query.code as string;
@@ -261,10 +264,11 @@ app.get("/oauthcallback",
   }
 );
 
+// @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
 app.post(
   "/checkTokenStatus",
   adminAuthMiddleware,
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
     const tokenDoc = await tokenDocRef.get();
     const tokens = tokenDoc.data();
@@ -289,10 +293,11 @@ app.post(
   }
 );
 
+// @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
 app.post(
   "/disconnectGoogleAccount",
   adminAuthMiddleware,
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
     const tokenDoc = await tokenDocRef.get();
     if (tokenDoc.exists && tokenDoc.data()?.refresh_token) {
@@ -308,10 +313,11 @@ app.post(
   }
 );
 
+// @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
 app.post(
   "/listGoogleCalendars",
   adminAuthMiddleware,
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
     const tokenDoc = await tokenDocRef.get();
     const tokens = tokenDoc.data();

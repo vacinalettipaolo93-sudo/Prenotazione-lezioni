@@ -11,7 +11,7 @@ interface BookingCalendarProps {
 }
 
 const BookingCalendar: React.FC<BookingCalendarProps> = ({ user }) => {
-  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busySlots, setBusySlots] = useState<Date[]>([]);
   
@@ -28,7 +28,10 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({ user }) => {
     nextWeek.setDate(today.getDate() + 7);
 
     let gCalBusyTimes: Date[] = [];
-    if (GCal.isAuthorized()) {
+    const connection = await GCal.checkGoogleConnection();
+    setIsConnected(connection.isConnected);
+
+    if (connection.isConnected) {
         const appSettings = await getAppSettings();
         const calendarIds = appSettings?.selectedCalendarIds?.length ? appSettings.selectedCalendarIds : ['primary'];
         
@@ -46,42 +49,56 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({ user }) => {
         });
     }
 
-    const bookingsQuery = query(
-      collection(db, "bookings"),
-      where("startTime", ">=", Timestamp.fromDate(today)),
-      where("startTime", "<=", Timestamp.fromDate(nextWeek))
-    );
-    const querySnapshot = await getDocs(bookingsQuery);
-    const firestoreBusyTimes = querySnapshot.docs.map(doc => (doc.data().startTime as Timestamp).toDate());
-    
-    const allBusySlots = [...gCalBusyTimes, ...firestoreBusyTimes];
-    setBusySlots(allBusySlots);
+    if (db) {
+        const bookingsQuery = query(
+        collection(db, "bookings"),
+        where("startTime", ">=", Timestamp.fromDate(today)),
+        where("startTime", "<=", Timestamp.fromDate(nextWeek))
+        );
+        const querySnapshot = await getDocs(bookingsQuery);
+        const firestoreBusyTimes = querySnapshot.docs.map(doc => (doc.data().startTime as Timestamp).toDate());
+        
+        const allBusySlots = [...gCalBusyTimes, ...firestoreBusyTimes];
+        setBusySlots(allBusySlots);
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    setIsAuthorized(GCal.isAuthorized());
     fetchEventsAndBookings();
   }, [fetchEventsAndBookings]);
   
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedSlot || !clientName || !clientEmail) return;
+    if (!selectedSlot || !clientName || !clientEmail || !db) return;
 
     setBookingState('booking');
     const endTime = new Date(selectedSlot.getTime() + 60 * 60 * 1000);
     
     try {
-      let gcalEvent = null;
-      if (isAuthorized) {
+      let gcalEventId: string | undefined = undefined;
+      if (isConnected) {
         const appSettings = await getAppSettings();
+        // Per semplicità, in questa vista usiamo il primo calendario mappato o il primario.
         const firstMappedCalendar = appSettings?.locationCalendarMapping ? Object.values(appSettings.locationCalendarMapping)[0] : undefined;
         const calendarId = firstMappedCalendar || 'primary';
-        gcalEvent = await GCal.createCalendarEvent({
-            summary: `Lezione di ${service} con ${clientName}`,
-            start: { dateTime: selectedSlot.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-            end: { dateTime: endTime.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-        }, calendarId);
+        
+        const eventData = {
+          clientName: clientName,
+          clientEmail: clientEmail,
+          sport: service,
+          lessonType: 'N/A',
+          duration: 60,
+          location: 'N/A',
+          startTime: selectedSlot.toISOString(),
+          endTime: endTime.toISOString(),
+          targetCalendarId: calendarId,
+        };
+
+        const result = await GCal.createCalendarEvent(eventData);
+        if (result.eventCreated && result.eventId) {
+            gcalEventId = result.eventId;
+        }
       }
 
       const newBooking: Omit<Booking, 'id'> = {
@@ -96,7 +113,7 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({ user }) => {
         startTime: selectedSlot,
         endTime,
         status: 'confirmed',
-        gcalEventId: gcalEvent?.id || undefined,
+        gcalEventId,
       };
 
       await addDoc(collection(db, "bookings"), newBooking);

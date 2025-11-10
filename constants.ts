@@ -1,34 +1,58 @@
-// ATTENZIONE: È FONDAMENTALE sostituire questi valori con le tue credenziali reali.
-// L'applicazione non funzionerà correttamente finché non avrai inserito le chiavi API corrette.
+// ATTENZIONE: Questi valori DEVONO essere definiti nel tuo file .env.local
+// NON INSERIRE MAI LE CHIAVI DI PRODUZIONE DIRETTAMENTE NEL CODICE.
 
-// ATTENZIONE: Questo è l'ultimo passo!
-// L'UID Firebase del tuo utente amministratore. Per trovarlo:
-// 1. Accedi all'app come amministratore con le tue credenziali.
-// 2. Vai alla tua console Firebase -> Authentication.
-// 3. Troverai il tuo utente (es. vacinaletti93@hotmail.it) con il suo "User UID". Copialo e incollalo qui.
-// FIX: Explicitly type ADMIN_UID as a string to fix a comparison type error in BookingCalendar.tsx.
-export const ADMIN_UID: string = "QYqqr8fpLdarhvt7JfY8NhUsOq23"; 
+// Crea un file chiamato .env.local nella cartella principale del progetto
+// e aggiungi le seguenti righe, sostituendo i valori con le tue credenziali:
+//
+// VITE_FIREBASE_ADMIN_UID="QYqqr8fpLdarhvt7JfY8NhUsOq23"
+// VITE_FIREBASE_API_KEY="AIzaSyBs_cE6smOR1qvSpoc24kDY4uTRtQclPdQ"
+// VITE_FIREBASE_AUTH_DOMAIN="gestionale-prenotazioni-lezio.firebaseapp.com"
+// VITE_FIREBASE_PROJECT_ID="gestionale-prenotazioni-lezio"
+// VITE_FIREBASE_STORAGE_BUCKET="gestionale-prenotazioni-lezio.appspot.com"
+// VITE_FIREBASE_MESSAGING_SENDER_ID="437487120297"
+// VITE_FIREBASE_APP_ID="1:437487120297:web:30895af62079b5301a1eb8"
+// VITE_GOOGLE_API_KEY="AIzaSyBs_cE6smOR1qvSpoc24kDY4uTRtQclPdQ"
+// VITE_GOOGLE_CLIENT_ID="437487120297-nt028l5ddba28bngpcs1nrhleho6k51h.apps.googleusercontent.com"
+//
 
-// Configurazione di Firebase: trovala nelle impostazioni del tuo progetto Firebase.
-// Vai su https://console.firebase.google.com/ -> Seleziona il tuo progetto -> Impostazioni progetto (icona ingranaggio)
+// --- AVVISO DI SICUREZZA ---
+// Le chiavi che erano presenti in questo file sono state esposte nella cronologia di Git.
+// È FONDAMENTALE revocarle e crearne di nuove:
+// 1. Vai su Google Cloud Console e rigenera la tua API Key.
+// 2. Vai su Firebase Console -> Impostazioni Progetto e rigenera la chiave API web.
+// 3. Aggiorna i valori nel tuo file .env.local con le NUOVE credenziali.
+
+// @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
+export const ADMIN_UID: string = (import.meta as any).env.VITE_FIREBASE_ADMIN_UID || "";
+
 export const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyBs_cE6smOR1qvSpoc24kDY4uTRtQclPdQ",
-  authDomain: "gestionale-prenotazioni-lezio.firebaseapp.com",
-  projectId: "gestionale-prenotazioni-lezio",
-  storageBucket: "gestionale-prenotazioni-lezio.appspot.com",
-  messagingSenderId: "437487120297",
-  appId: "1:437487120297:web:30895af62079b5301a1eb8"
+  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
+  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY,
+  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
+  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN,
+  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
+  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID,
+  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
+  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET,
+  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
+  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
+  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID
 };
 
-// Configurazione API di Google Calendar: crea un progetto su console.cloud.google.com,
-// abilita l'API di Google Calendar e crea le credenziali OAuth 2.0.
-// Vai su https://console.cloud.google.com/ -> Seleziona il tuo progetto -> API e servizi -> Credenziali
 export const GOOGLE_API_CONFIG = {
-  // La tua chiave API per accedere alle API pubbliche di Google.
-  API_KEY: "AIzaSyBs_cE6smOR1qvSpoc24kDY4uTRtQclPdQ",
-  // Il tuo Client ID per l'autenticazione OAuth 2.0.
-  CLIENT_ID: "437487120297-nt028l5ddba28bngpcs1nrhleho6k51h.apps.googleusercontent.com",
-  // Gli "scope" definiscono le autorizzazioni che la tua app richiede.
-  // Qui chiediamo l'accesso completo ai calendari dell'utente.
+  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
+  API_KEY: (import.meta as any).env.VITE_GOOGLE_API_KEY,
+  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
+  CLIENT_ID: (import.meta as any).env.VITE_GOOGLE_CLIENT_ID,
   SCOPES: "https://www.googleapis.com/auth/calendar"
 };
+
+// Controllo per avvisare lo sviluppatore se le variabili d'ambiente mancano
+if (!ADMIN_UID || !FIREBASE_CONFIG.apiKey || !GOOGLE_API_CONFIG.CLIENT_ID) {
+    console.warn(
+        "ATTENZIONE: Una o più variabili d'ambiente non sono state trovate. " +
+        "Assicurati di aver creato e configurato correttamente il file .env.local " +
+        "con tutte le credenziali necessarie."
+    );
+}
