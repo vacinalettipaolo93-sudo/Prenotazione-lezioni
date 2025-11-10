@@ -22,29 +22,22 @@
 // 2. Vai su Firebase Console -> Impostazioni Progetto e rigenera la chiave API web.
 // 3. Aggiorna i valori nel tuo file .env.local con le NUOVE credenziali.
 
-// @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
-export const ADMIN_UID: string = (import.meta as any).env.VITE_FIREBASE_ADMIN_UID || "";
+// L'app non usa Vite, quindi `import.meta.env` non è disponibile. 
+// Verrà usato `process.env` per accedere alle variabili d'ambiente.
+export const ADMIN_UID: string = process.env.VITE_FIREBASE_ADMIN_UID || "";
 
 export const FIREBASE_CONFIG = {
-  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
-  apiKey: (import.meta as any).env.VITE_FIREBASE_API_KEY,
-  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
-  authDomain: (import.meta as any).env.VITE_FIREBASE_AUTH_DOMAIN,
-  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
-  projectId: (import.meta as any).env.VITE_FIREBASE_PROJECT_ID,
-  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
-  storageBucket: (import.meta as any).env.VITE_FIREBASE_STORAGE_BUCKET,
-  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
-  messagingSenderId: (import.meta as any).env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
-  appId: (import.meta as any).env.VITE_FIREBASE_APP_ID
+  apiKey: process.env.VITE_FIREBASE_API_KEY,
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.VITE_FIREBASE_APP_ID
 };
 
 export const GOOGLE_API_CONFIG = {
-  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
-  API_KEY: (import.meta as any).env.VITE_GOOGLE_API_KEY,
-  // @google/genai-api-fix: Cast `import.meta` to `any` to fix "Property 'env' does not exist on type 'ImportMeta'" error.
-  CLIENT_ID: (import.meta as any).env.VITE_GOOGLE_CLIENT_ID,
+  API_KEY: process.env.VITE_GOOGLE_API_KEY,
+  CLIENT_ID: process.env.VITE_GOOGLE_CLIENT_ID,
   SCOPES: "https://www.googleapis.com/auth/calendar"
 };
 
