@@ -63,14 +63,29 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
 
     const handleConnect = async () => {
         setApiError(null);
+
+        // 1. Apri il popup IMMEDIATAMENTE al click.
+        const popup = window.open('', 'google-auth', 'width=500,height=600');
+        
+        // 2. Controlla se il popup è stato bloccato.
+        if (!popup) {
+            setApiError("Il popup è stato bloccato dal browser. Abilita i popup per questo sito e riprova.");
+            return;
+        }
+        popup.document.write('<html><head><title>Connessione a Google</title><style>body { font-family: sans-serif; background-color: #111827; color: #d1d5db; display: flex; align-items: center; justify-content: center; height: 100%; margin: 0; } .container { text-align: center; } .spinner { border: 4px solid rgba(255, 255, 255, 0.2); width: 36px; height: 36px; border-radius: 50%; border-left-color: #10b981; animation: spin 1s ease infinite; margin: 0 auto 16px; } @keyframes spin { to { transform: rotate(360deg); } } </style></head><body><div class="container"><div class="spinner"></div><p>Attendi, stiamo generando il link di autenticazione...</p></div></body></html>');
+
         try {
+            // 3. Ora recupera l'URL di autenticazione dal backend.
             const authUrl = await GCal.getGoogleAuthUrl();
-            const popup = window.open(authUrl, 'google-auth', 'width=500,height=600');
             
+            // 4. Reindirizza il popup all'URL corretto.
+            popup.location.href = authUrl;
+            
+            // 5. Imposta l'intervallo per controllare quando il popup viene chiuso.
             const checkPopup = setInterval(() => {
-                if (!popup || popup.closed) {
+                if (popup.closed) {
                     clearInterval(checkPopup);
-                    // Ora eseguiamo un check "rumoroso", perché l'utente si aspetta un risultato
+                    // Eseguiamo il check dello stato dopo la chiusura.
                     checkStatus({ isInitialCheck: false });
                 }
             }, 1000);
@@ -78,6 +93,8 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
         } catch (error: any) {
             console.error("Google connection failed:", error);
             setApiError(`Impossibile avviare la connessione con Google: ${error.message}`);
+            // Se c'è un errore, chiudi il popup.
+            popup.close();
         }
     };
 

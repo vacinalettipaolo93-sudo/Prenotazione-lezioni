@@ -2,8 +2,8 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 // FIX: Explicitly import Request, Response, and NextFunction from express
-// to ensure correct type resolution and fix property access errors.
-import express, { Request, Response, NextFunction } from "express";
+// to ensure correct type resolution and fix property access errors by aliasing them.
+import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction as ExpressNextFunction } from "express";
 import cors from "cors";
 import { google } from "googleapis";
 import { type DecodedIdToken } from "firebase-admin/auth";
@@ -63,9 +63,9 @@ const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
  */
 // FIX: Use explicitly imported types from Express for request, response, and next function.
 const authenticateAdmin = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
+  req: ExpressRequest,
+  res: ExpressResponse,
+  next: ExpressNextFunction,
 ) => {
   const { authorization } = req.headers;
 
@@ -101,9 +101,9 @@ const authenticateAdmin = async (
  */
 // FIX: Use explicitly imported types from Express for request, response, and next function.
 const checkServerConfig = (
-  req: Request,
-  res: Response,
-  next: NextFunction,
+  req: ExpressRequest,
+  res: ExpressResponse,
+  next: ExpressNextFunction,
 ) => {
   if (!oAuth2Client || !ADMIN_UID) {
     console.error(
@@ -157,7 +157,7 @@ app.post(
   "/getAuthURL",
   authenticateAdmin,
   // FIX: Use explicitly imported types from Express for request and response.
-  (req: Request, res: Response) => {
+  (req: ExpressRequest, res: ExpressResponse) => {
     const adminUid = res.locals.user.uid;
     const authUrl = oAuth2Client!.generateAuthUrl({
       access_type: "offline", // Richiede un refresh_token
@@ -173,7 +173,7 @@ app.post(
  * [PUBBLICO] Callback per il flusso OAuth2 di Google.
  */
 // FIX: Use explicitly imported types from Express for request and response.
-app.get("/oauthcallback", async (req: Request, res: Response) => {
+app.get("/oauthcallback", async (req: ExpressRequest, res: ExpressResponse) => {
   const { code, state } = req.query;
   const adminUid = state as string;
 
@@ -226,7 +226,7 @@ app.post(
   "/checkTokenStatus",
   authenticateAdmin,
   // FIX: Use explicitly imported types from Express for request and response.
-  async (req: Request, res: Response) => {
+  async (req: ExpressRequest, res: ExpressResponse) => {
     try {
       const settingsDoc = await getAdminSettingsRef(res.locals.user.uid).get();
       const settings = settingsDoc.data();
@@ -251,7 +251,7 @@ app.post(
   "/disconnectGoogleAccount",
   authenticateAdmin,
   // FIX: Use explicitly imported types from Express for request and response.
-  async (req: Request, res: Response) => {
+  async (req: ExpressRequest, res: ExpressResponse) => {
     try {
       await getAdminSettingsRef(res.locals.user.uid).update({
         googleRefreshToken: admin.firestore.FieldValue.delete(),
@@ -272,7 +272,7 @@ app.post(
   "/listGoogleCalendars",
   authenticateAdmin,
   // FIX: Use explicitly imported types from Express for request and response.
-  async (req: Request, res: Response) => {
+  async (req: ExpressRequest, res: ExpressResponse) => {
     try {
       const hasCredentials = await setGoogleAuthCredentials(res.locals.user.uid);
       if (!hasCredentials) {
@@ -299,7 +299,7 @@ app.post(
 app.post(
   "/getBusySlotsOnBehalfOfAdmin",
   // FIX: Use explicitly imported types from Express for request and response.
-  async (req: Request, res: Response) => {
+  async (req: ExpressRequest, res: ExpressResponse) => {
     const { timeMin, timeMax, calendarIds } = req.body.data;
 
     if (!ADMIN_UID) {
@@ -349,7 +349,7 @@ app.post(
 app.post(
   "/createEventOnBehalfOfAdmin",
   // FIX: Use explicitly imported types from Express for request and response.
-  async (req: Request, res: Response) => {
+  async (req: ExpressRequest, res: ExpressResponse) => {
     const eventData = req.body.data;
     if (!ADMIN_UID) {
       const message = "Admin UID non configurato sul server.";
