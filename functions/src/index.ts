@@ -1,3 +1,5 @@
+
+
 // Questo file deve essere collocato nella cartella 'functions/src' del
 // tuo progetto Firebase. Assicurati di aver installato le dipendenze
 // necessarie con `npm install`.
@@ -9,7 +11,13 @@ import {getAuth} from "firebase-admin/auth";
 import {google} from "googleapis";
 // FIX: Consolidate express imports to resolve no-duplicates lint error.
 // FIX: Use type aliases for express Request, Response, and NextFunction to avoid conflicts with global types.
-import express, {Request as ExpressRequest, Response as ExpressResponse, NextFunction as ExpressNextFunction} from "express";
+// FIX: Separated value and type imports for express to resolve module resolution errors.
+import express from "express";
+import type {
+  Request as ExpressRequest,
+  Response as ExpressResponse,
+  NextFunction as ExpressNextFunction,
+} from "express";
 
 // ** GESTIONE ROBUSTA DEGLI ERRORI DI INIZIALIZZAZIONE **
 let db: Firestore;
@@ -25,7 +33,8 @@ try {
 const app = express();
 
 // ** CONFIGURAZIONE CORS MANUALE E ROBUSTA **
-app.use((req, res, next) => {
+// FIX: Added explicit types to middleware arguments to resolve type inference errors.
+app.use((req: ExpressRequest, res: ExpressResponse, next: ExpressNextFunction) => {
   const origin = req.headers.origin;
   if (origin) {
     res.setHeader("Access-Control-Allow-Origin", origin as string);
@@ -46,9 +55,6 @@ app.use((req, res, next) => {
     next();
   }
 });
-
-// FIX: Removed redundant express.json() middleware. Firebase Functions v1
-// automatically parses JSON request bodies.
 
 // ** FUNZIONI HELPER CON GESTIONE ERRORI INTEGRATA **
 
@@ -145,28 +151,33 @@ app.post(
     }),
 );
 
-app.get("/oauthcallback", handleApiRequest(async (req, res) => {
-  const oauth2Client = getOauth2Client();
-  const code = req.query.code as string;
-  if (!code) throw new Error("Codice autorizzazione non presente.");
+app.get(
+    "/oauthcallback",
+    handleApiRequest(async (req, res) => {
+      const oauth2Client = getOauth2Client();
+      const code = req.query.code as string;
+      if (!code) {
+        throw new Error("Codice autorizzazione non presente.");
+      }
 
-  const {tokens} = await oauth2Client.getToken(code);
-  if (tokens && tokens.refresh_token) {
-    const tokenDocRef = db.collection("googleTokens").doc(getAdminUid());
-    await tokenDocRef.set({refresh_token: tokens.refresh_token});
-  }
-  const htmlResponse = `
-    <html><body style="font-family: sans-serif; text-align: center;
-    background-color: #1a202c; color: #e2e8f0; display: flex;
-    justify-content: center; align-items: center; height: 100vh;">
-    <div>
-      <h1 style="color: #48bb78;">Autorizzazione completata!</h1>
-      <p>Questa finestra si chiuderà a breve.</p>
-      <script>setTimeout(() => window.close(), 2000);</script>
-    </div>
-    </body></html>`;
-  res.send(htmlResponse);
-}));
+      const {tokens} = await oauth2Client.getToken(code);
+      if (tokens && tokens.refresh_token) {
+        const tokenDocRef = db.collection("googleTokens").doc(getAdminUid());
+        await tokenDocRef.set({refresh_token: tokens.refresh_token});
+      }
+      const htmlResponse = `
+        <html><body style="font-family: sans-serif; text-align: center;
+        background-color: #1a202c; color: #e2e8f0; display: flex;
+        justify-content: center; align-items: center; height: 100vh;">
+        <div>
+          <h1 style="color: #48bb78;">Autorizzazione completata!</h1>
+          <p>Questa finestra si chiuderà a breve.</p>
+          <script>setTimeout(() => window.close(), 2000);</script>
+        </div>
+        </body></html>`;
+      res.send(htmlResponse);
+    }),
+);
 
 app.post(
     "/checkTokenStatus",
@@ -185,11 +196,13 @@ app.post(
           res.json({data: {isConnected: true, email: cal.data.id}});
         } catch (error: any) {
           await tokenDocRef.delete();
-          res.json({data: {
-            isConnected: false,
-            email: null,
-            error: "Token non valido. Riconnettersi.",
-          }});
+          res.json({
+            data: {
+              isConnected: false,
+              email: null,
+              error: "Token non valido. Riconnettersi.",
+            },
+          });
         }
       } else {
         res.json({data: {isConnected: false, email: null}});
@@ -231,11 +244,12 @@ app.post(
       oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
       const calendar = google.calendar({version: "v3", auth: oauth2Client});
       const response = await calendar.calendarList.list({});
-      const calendarList = response.data.items?.map((cal) => ({
-        id: cal.id,
-        summary: cal.summary,
-        primary: cal.primary,
-      })) || [];
+      const calendarList =
+        response.data.items?.map((cal) => ({
+          id: cal.id,
+          summary: cal.summary,
+          primary: cal.primary,
+        })) || [];
       res.json({data: calendarList});
     }),
 );
@@ -272,7 +286,7 @@ app.post(
         },
       });
 
-      let busyIntervals: { start: string; end: string }[] = [];
+      let busyIntervals: {start: string; end: string}[] = [];
       const calendarsData = response.data.calendars;
       if (calendarsData) {
         for (const id in calendarsData) {
@@ -282,7 +296,10 @@ app.post(
               const validPeriods = busyPeriods
                   .filter((p) => p.start && p.end)
                   // eslint-disable-next-line
-                  .map((p) => ({start: p.start as string, end: p.end as string}));
+                  .map((p) => ({
+                    start: p.start as string,
+                    end: p.end as string,
+                  }));
               busyIntervals = busyIntervals.concat(validPeriods);
             }
           }
@@ -302,11 +319,13 @@ app.post(
       const tokens = tokenDoc.data();
 
       if (!tokenDoc.exists || !tokens?.refresh_token) {
-        res.json({data: {
-          eventCreated: false,
-          eventId: null,
-          error: "L'account admin non è collegato a Google Calendar.",
-        }});
+        res.json({
+          data: {
+            eventCreated: false,
+            eventId: null,
+            error: "L'account admin non è collegato a Google Calendar.",
+          },
+        });
         return;
       }
 
@@ -325,7 +344,10 @@ app.post(
 
         <b>Note:</b>
         <pre>${data.message || "Nessuna nota."}</pre>
-      `.replace(/(\r\n|\n|\r)/gm, "").replace(/\s+/g, " ").trim();
+      `
+          .replace(/(\r\n|\n|\r)/gm, "")
+          .replace(/\s+/g, " ")
+          .trim();
       const event = {
         summary: `Lezione di ${data.sport} - ${data.clientName}`,
         location: data.location,
@@ -354,17 +376,21 @@ app.post(
           requestBody: event,
           sendUpdates: "all",
         });
-        res.json({data: {
-          eventCreated: true,
-          eventId: response.data.id,
-        }});
+        res.json({
+          data: {
+            eventCreated: true,
+            eventId: response.data.id,
+          },
+        });
       } catch (err) {
         console.error("Errore creazione evento Google:", err);
-        res.json({data: {
-          eventCreated: false,
-          eventId: null,
-          error: "Impossibile creare l'evento su Google Calendar.",
-        }});
+        res.json({
+          data: {
+            eventCreated: false,
+            eventId: null,
+            error: "Impossibile creare l'evento su Google Calendar.",
+          },
+        });
       }
     }),
 );
