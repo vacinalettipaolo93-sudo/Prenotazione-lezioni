@@ -22,10 +22,16 @@ const app = express();
 const functionsConfig = functions.config();
 
 
-// FIX: Sostituita la policy CORS restrittiva con una più flessibile per lo sviluppo.
-// La nuova configurazione permette dinamicamente all'origine della richiesta in arrivo
-// di accedere, risolvendo gli errori CORS riscontrati durante il deploy su ambienti diversi.
-app.use(cors({origin: true}));
+// ** FIX CORS **
+// Configurazione esplicita di CORS per accettare richieste solo dal dominio Vercel.
+// Questo è un fix più robusto rispetto a `cors()` generico e risolve i problemi
+// di "preflight request" che causano l'errore di rete.
+const corsOptions = {
+  origin: "https://gestionale-prenotazioni-lezioni.vercel.app",
+  optionsSuccessStatus: 200,
+};
+app.use(cors(corsOptions));
+
 
 app.use(express.json());
 
