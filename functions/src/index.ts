@@ -4,6 +4,8 @@
 
 
 
+
+
 // Questo file deve essere collocato nella cartella 'functions/src' del
 // tuo progetto Firebase. Assicurati di aver installato le dipendenze
 // necessarie con `npm install`.
@@ -14,7 +16,8 @@ import {getFirestore, Firestore} from "firebase-admin/firestore";
 import {getAuth} from "firebase-admin/auth";
 import {google} from "googleapis";
 // FIX: Changed express import to a default import to allow for namespaced type access (e.g., `express.Request`), which robustly resolves type conflicts with firebase-functions.
-import express, { Request, Response, NextFunction, Express } from "express";
+// FIX: Use a default import for express to enable namespaced types (express.Request, express.Response) and avoid conflicts.
+import express from "express";
 import cors from "cors";
 
 // ** GESTIONE ROBUSTA DEGLI ERRORI DI INIZIALIZZAZIONE **
@@ -32,7 +35,7 @@ try {
 }
 
 // FIX: Explicitly typing `app` with `express.Express` to ensure correct type inference for Express methods and middleware.
-const app: Express = express();
+const app: express.Express = express();
 
 // ** FIX CORS DEFINITIVO E ROBUSTO (v2) **
 // Abbiamo reso la configurazione CORS più robusta per garantire
@@ -86,9 +89,9 @@ const getAdminUid = () => {
 // ** MIDDLEWARE DI AUTENTICAZIONE BLINDATO **
 // FIX: Updated request, response, and next function types to use the namespaced `express` types, ensuring correctness and resolving compiler errors.
 const adminAuthMiddleware = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
 ) => {
   try {
     const authHeader = req.headers.authorization;
@@ -118,9 +121,9 @@ const adminAuthMiddleware = async (
 // ** WRAPPER PER GLI ENDPOINT **
 // FIX: Explicitly typed handler arguments with namespaced `express` types to fix type resolution issues.
 const handleApiRequest = (
-  handler: (req: Request, res: Response) => Promise<void>
+  handler: (req: express.Request, res: express.Response) => Promise<void>
 ) => {
-  return async (req: Request, res: Response) => {
+  return async (req: express.Request, res: express.Response) => {
     try {
       await handler(req, res);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
