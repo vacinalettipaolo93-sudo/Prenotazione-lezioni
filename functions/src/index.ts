@@ -1,6 +1,3 @@
-
-
-
 // Questo file deve essere collocato nella cartella 'functions/src' del
 // tuo progetto Firebase. Assicurati di aver installato le dipendenze
 // necessarie con `npm install`.
@@ -10,46 +7,62 @@ import {initializeApp} from "firebase-admin/app";
 import {getFirestore, Firestore} from "firebase-admin/firestore";
 import {getAuth} from "firebase-admin/auth";
 import {google} from "googleapis";
-// FIX: Replaced aliased imports with a default import to use fully qualified express types, which resolves conflicts with firebase-functions types.
-// FIX: Changed express and cors imports to use 'require' syntax for better compatibility with CommonJS modules, resolving numerous type errors.
-import express = require("express");
-import cors = require("cors");
+// FIX: Consolidate express imports to resolve no-duplicates lint error.
+// FIX: Use type aliases for express Request, Response, and NextFunction to avoid conflicts with global types.
+import express, {Request as ExpressRequest, Response as ExpressResponse, NextFunction as ExpressNextFunction} from "express";
 
 // ** GESTIONE ROBUSTA DEGLI ERRORI DI INIZIALIZZAZIONE **
 let db: Firestore;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let functionsConfig: any;
 try {
   initializeApp();
   db = getFirestore();
-  // FIX: Cast to any to bypass the incorrect 'never' type inference, which seems to be a type definition issue.
-  functionsConfig = (functions as any).config();
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 } catch (e: any) {
   console.error("ERRORE CRITICO DI INIZIALIZZAZIONE FIREBASE:", e);
+  // In caso di errore critico, le funzioni non dovrebbero nemmeno provare a
+  // partire. In un ambiente reale, questo potrebbe triggerare un alert.
 }
 
 const app = express();
 
-// ** CONFIGURAZIONE CORS SEMPLIFICATA E ROBUSTA **
-// Permette richieste dall'origine del client (es. il tuo sito su Vercel o l'ambiente di test).
-// È la configurazione standard e più sicura per questo tipo di architettura.
-app.use(cors({ origin: true }));
+// ** CONFIGURAZIONE CORS MANUALE E ROBUSTA **
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin as string);
+  }
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, OPTIONS",
+  );
+  res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+  );
 
-app.use(express.json());
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+  } else {
+    next();
+  }
+});
 
+// FIX: Removed redundant express.json() middleware. Firebase Functions v1
+// automatically parses JSON request bodies.
 
 // ** FUNZIONI HELPER CON GESTIONE ERRORI INTEGRATA **
+
+// Legge le variabili d'ambiente invece del deprecato functions.config()
 const getOauth2Client = () => {
-  if (!functionsConfig?.googleapi) {
-    throw new Error("Config Google API (googleapi) mancante sul server.");
-  }
   /* eslint-disable camelcase */
-  const {client_id, client_secret, redirect_uri} = functionsConfig.googleapi;
+  const client_id = process.env.GOOGLEAPI_CLIENT_ID;
+  const client_secret = process.env.GOOGLEAPI_CLIENT_SECRET;
+  const redirect_uri = process.env.GOOGLEAPI_REDIRECT_URI;
 
   if (!client_id || !client_secret || !redirect_uri) {
-    const msg = "Credenziali Google API (client_id, etc.) mancanti.";
-    throw new Error(msg);
+    const msg = "Una o più variabili d'ambiente Google API non sono impostate";
+    console.error(msg + " (CLIENT_ID, CLIENT_SECRET, REDIRECT_URI)");
+    throw new Error("Configurazione del server incompleta.");
   }
 
   return new google.auth.OAuth2(client_id, client_secret, redirect_uri);
@@ -57,18 +70,20 @@ const getOauth2Client = () => {
 };
 
 const getAdminUid = () => {
-  if (!functionsConfig?.admin?.uid) {
-    throw new Error("Config Admin UID (admin.uid) mancante sul server.");
+  const adminUid = process.env.ADMIN_UID;
+  if (!adminUid) {
+    const msg = "La variabile d'ambiente ADMIN_UID non è stata impostata.";
+    console.error(msg);
+    throw new Error("Configurazione del server incompleta.");
   }
-  return functionsConfig.admin.uid;
+  return adminUid;
 };
 
 // ** MIDDLEWARE DI AUTENTICAZIONE BLINDATO **
-// FIX: Use express.Request, express.Response, and express.NextFunction types to resolve conflicts.
 const adminAuthMiddleware = async (
-  req: express.Request,
-  res: express.Response,
-  next: express.NextFunction
+    req: ExpressRequest,
+    res: ExpressResponse,
+    next: ExpressNextFunction,
 ) => {
   try {
     const authHeader = req.headers.authorization;
@@ -83,27 +98,24 @@ const adminAuthMiddleware = async (
       const err = "Permesso negato: l'utente non è un amministratore.";
       return res.status(403).json({error: {message: err}});
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (req as any).user = decodedToken;
     return next();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error("Errore di autenticazione nel middleware:", error.message);
+    const message = `Non autorizzato: ${error.message}`;
     return res.status(403).json({
-      error: {message: `Non autorizzato: ${error.message}`},
+      error: {message},
     });
   }
 };
 
 // ** WRAPPER PER GLI ENDPOINT **
-// FIX: Use express.Request and express.Response types to resolve conflicts.
 const handleApiRequest = (
-  handler: (req: express.Request, res: express.Response) => Promise<void>
+    handler: (req: ExpressRequest, res: ExpressResponse) => Promise<void>,
 ) => {
-  return async (req: express.Request, res: express.Response) => {
+  return async (req: ExpressRequest, res: ExpressResponse) => {
     try {
       await handler(req, res);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       const path = `[${req.path}]`;
       console.error(`ERRORE NON GESTITO NELL'ENDPOINT ${path}:`, error);
@@ -119,19 +131,18 @@ const handleApiRequest = (
 // =================================================================================
 
 app.post(
-  "/getAuthURL",
-  adminAuthMiddleware,
-  handleApiRequest(async (req, res) => {
-    const oauth2Client = getOauth2Client();
-    const scopes = ["https://www.googleapis.com/auth/calendar"];
-    const url = oauth2Client.generateAuthUrl({
-      // eslint-disable-next-line camelcase
-      access_type: "offline",
-      prompt: "consent",
-      scope: scopes,
-    });
-    res.json({data: {url}});
-  })
+    "/getAuthURL",
+    adminAuthMiddleware,
+    handleApiRequest(async (req, res) => {
+      const oauth2Client = getOauth2Client();
+      const scopes = ["https://www.googleapis.com/auth/calendar"];
+      const url = oauth2Client.generateAuthUrl({
+        access_type: "offline",
+        prompt: "consent",
+        scope: scopes,
+      });
+      res.json({data: {url}});
+    }),
 );
 
 app.get("/oauthcallback", handleApiRequest(async (req, res) => {
@@ -140,10 +151,8 @@ app.get("/oauthcallback", handleApiRequest(async (req, res) => {
   if (!code) throw new Error("Codice autorizzazione non presente.");
 
   const {tokens} = await oauth2Client.getToken(code);
-  // eslint-disable-next-line camelcase
   if (tokens && tokens.refresh_token) {
-    const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
-    // eslint-disable-next-line camelcase
+    const tokenDocRef = db.collection("googleTokens").doc(getAdminUid());
     await tokenDocRef.set({refresh_token: tokens.refresh_token});
   }
   const htmlResponse = `
@@ -160,162 +169,150 @@ app.get("/oauthcallback", handleApiRequest(async (req, res) => {
 }));
 
 app.post(
-  "/checkTokenStatus",
-  adminAuthMiddleware,
-  handleApiRequest(async (req, res) => {
-    const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
-    const tokenDoc = await tokenDocRef.get();
-    const tokens = tokenDoc.data();
+    "/checkTokenStatus",
+    adminAuthMiddleware,
+    handleApiRequest(async (req, res) => {
+      const tokenDocRef = db.collection("googleTokens").doc(getAdminUid());
+      const tokenDoc = await tokenDocRef.get();
+      const tokens = tokenDoc.data();
 
-    // eslint-disable-next-line camelcase
-    if (tokenDoc.exists && tokens?.refresh_token) {
-      try {
-        const oauth2Client = getOauth2Client();
-        // eslint-disable-next-line camelcase
-        oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
-        const calendar = google.calendar({version: "v3", auth: oauth2Client});
-        const cal = await calendar.calendars.get({calendarId: "primary"});
-        res.json({data: {isConnected: true, email: cal.data.id}});
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } catch (error: any) {
-        await tokenDocRef.delete();
-        res.json({data: {
-          isConnected: false,
-          email: null,
-          error: "Token non valido. Riconnettersi.",
-        }});
+      if (tokenDoc.exists && tokens?.refresh_token) {
+        try {
+          const oauth2Client = getOauth2Client();
+          oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
+          const calendar = google.calendar({version: "v3", auth: oauth2Client});
+          const cal = await calendar.calendars.get({calendarId: "primary"});
+          res.json({data: {isConnected: true, email: cal.data.id}});
+        } catch (error: any) {
+          await tokenDocRef.delete();
+          res.json({data: {
+            isConnected: false,
+            email: null,
+            error: "Token non valido. Riconnettersi.",
+          }});
+        }
+      } else {
+        res.json({data: {isConnected: false, email: null}});
       }
-    } else {
-      res.json({data: {isConnected: false, email: null}});
-    }
-  })
+    }),
 );
 
 app.post(
-  "/disconnectGoogleAccount",
-  adminAuthMiddleware,
-  handleApiRequest(async (req, res) => {
-    const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
-    const tokenDoc = await tokenDocRef.get();
-    if (tokenDoc.exists && tokenDoc.data()?.refresh_token) {
-      try {
-        const token = tokenDoc.data()?.refresh_token;
-        await getOauth2Client().revokeToken(token);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } catch (e: any) {
-        console.error("Revoca token fallita, elimino dal DB.", e);
+    "/disconnectGoogleAccount",
+    adminAuthMiddleware,
+    handleApiRequest(async (req, res) => {
+      const tokenDocRef = db.collection("googleTokens").doc(getAdminUid());
+      const tokenDoc = await tokenDocRef.get();
+      if (tokenDoc.exists && tokenDoc.data()?.refresh_token) {
+        try {
+          const token = tokenDoc.data()?.refresh_token;
+          await getOauth2Client().revokeToken(token);
+        } catch (e: any) {
+          console.error("Revoca token fallita, elimino dal DB.", e);
+        }
       }
-    }
-    await tokenDocRef.delete();
-    res.json({data: {success: true}});
-  })
+      await tokenDocRef.delete();
+      res.json({data: {success: true}});
+    }),
 );
 
 app.post(
-  "/listGoogleCalendars",
-  adminAuthMiddleware,
-  handleApiRequest(async (req, res) => {
-    const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
-    const tokenDoc = await tokenDocRef.get();
-    const tokens = tokenDoc.data();
-    // eslint-disable-next-line camelcase
-    if (!tokenDoc.exists || !tokens?.refresh_token) {
-      res.status(404).json({error: {message: "Token non trovato."}});
-      return;
-    }
-    const oauth2Client = getOauth2Client();
-    // eslint-disable-next-line camelcase
-    oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
-    const calendar = google.calendar({version: "v3", auth: oauth2Client});
-    const response = await calendar.calendarList.list({});
-    const calendarList = response.data.items?.map((cal) => ({
-      id: cal.id,
-      summary: cal.summary,
-      primary: cal.primary,
-    })) || [];
-    res.json({data: calendarList});
-  })
+    "/listGoogleCalendars",
+    adminAuthMiddleware,
+    handleApiRequest(async (req, res) => {
+      const tokenDocRef = db.collection("googleTokens").doc(getAdminUid());
+      const tokenDoc = await tokenDocRef.get();
+      const tokens = tokenDoc.data();
+      if (!tokenDoc.exists || !tokens?.refresh_token) {
+        res.status(404).json({error: {message: "Token non trovato."}});
+        return;
+      }
+      const oauth2Client = getOauth2Client();
+      oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
+      const calendar = google.calendar({version: "v3", auth: oauth2Client});
+      const response = await calendar.calendarList.list({});
+      const calendarList = response.data.items?.map((cal) => ({
+        id: cal.id,
+        summary: cal.summary,
+        primary: cal.primary,
+      })) || [];
+      res.json({data: calendarList});
+    }),
 );
 
 // --- ENDPOINT PUBBLICI ---
 
 app.post(
-  "/getBusySlotsOnBehalfOfAdmin",
-  handleApiRequest(async (req, res) => {
-    const {timeMin, timeMax, calendarIds} = req.body.data;
-    if (!timeMin || !timeMax || !calendarIds) {
-      const err = "timeMin, timeMax e calendarIds obbligatori.";
-      res.status(400).json({error: {message: err}});
-      return;
-    }
+    "/getBusySlotsOnBehalfOfAdmin",
+    handleApiRequest(async (req, res) => {
+      const {timeMin, timeMax, calendarIds} = req.body.data;
+      if (!timeMin || !timeMax || !calendarIds) {
+        const err = "timeMin, timeMax e calendarIds obbligatori.";
+        res.status(400).json({error: {message: err}});
+        return;
+      }
 
-    const oauth2Client = getOauth2Client();
-    const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
-    const tokenDoc = await tokenDocRef.get();
-    const tokens = tokenDoc.data();
+      const oauth2Client = getOauth2Client();
+      const tokenDocRef = db.collection("googleTokens").doc(getAdminUid());
+      const tokenDoc = await tokenDocRef.get();
+      const tokens = tokenDoc.data();
 
-    // eslint-disable-next-line camelcase
-    if (!tokenDoc.exists || !tokens?.refresh_token) {
-      res.json({data: []});
-      return;
-    }
+      if (!tokenDoc.exists || !tokens?.refresh_token) {
+        res.json({data: []});
+        return;
+      }
 
-    // eslint-disable-next-line camelcase
-    oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
-    const calendar = google.calendar({version: "v3", auth: oauth2Client});
-    const response = await calendar.freebusy.query({
-      requestBody: {
-        timeMin,
-        timeMax,
-        items: calendarIds.map((id: string) => ({id})),
-      },
-    });
+      oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
+      const calendar = google.calendar({version: "v3", auth: oauth2Client});
+      const response = await calendar.freebusy.query({
+        requestBody: {
+          timeMin,
+          timeMax,
+          items: calendarIds.map((id: string) => ({id})),
+        },
+      });
 
-    let busyIntervals: { start: string; end: string }[] = [];
-    const calendarsData = response.data.calendars;
-    if (calendarsData) {
-      for (const id in calendarsData) {
-        if (Object.prototype.hasOwnProperty.call(calendarsData, id)) {
-          const busyPeriods = calendarsData[id].busy;
-          if (busyPeriods) {
-            const validPeriods = busyPeriods
-              .filter((p) => p.start && p.end)
-              .map((p) => ({start: p.start as string, end: p.end as string}));
-            busyIntervals = busyIntervals.concat(validPeriods);
+      let busyIntervals: { start: string; end: string }[] = [];
+      const calendarsData = response.data.calendars;
+      if (calendarsData) {
+        for (const id in calendarsData) {
+          if (Object.prototype.hasOwnProperty.call(calendarsData, id)) {
+            const busyPeriods = calendarsData[id].busy;
+            if (busyPeriods) {
+              const validPeriods = busyPeriods
+                  .filter((p) => p.start && p.end)
+                  // eslint-disable-next-line
+                  .map((p) => ({start: p.start as string, end: p.end as string}));
+              busyIntervals = busyIntervals.concat(validPeriods);
+            }
           }
         }
       }
-    }
-    res.json({data: busyIntervals});
-  })
+      res.json({data: busyIntervals});
+    }),
 );
 
 app.post(
-  "/createEventOnBehalfOfAdmin",
-  handleApiRequest(async (req, res) => {
-    const data = req.body.data;
-    const oauth2Client = getOauth2Client();
-    const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
-    const tokenDoc = await tokenDocRef.get();
-    const tokens = tokenDoc.data();
+    "/createEventOnBehalfOfAdmin",
+    handleApiRequest(async (req, res) => {
+      const data = req.body.data;
+      const oauth2Client = getOauth2Client();
+      const tokenDocRef = db.collection("googleTokens").doc(getAdminUid());
+      const tokenDoc = await tokenDocRef.get();
+      const tokens = tokenDoc.data();
 
-    // eslint-disable-next-line camelcase
-    if (!tokenDoc.exists || !tokens?.refresh_token) {
-      res.json({data: {
-        eventCreated: false,
-        eventId: null,
-        error: "L'account admin non è collegato a Google Calendar.",
-      }});
-      return;
-    }
+      if (!tokenDoc.exists || !tokens?.refresh_token) {
+        res.json({data: {
+          eventCreated: false,
+          eventId: null,
+          error: "L'account admin non è collegato a Google Calendar.",
+        }});
+        return;
+      }
 
-    // eslint-disable-next-line camelcase
-    oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
-    const calendar = google.calendar({version: "v3", auth: oauth2Client});
-    const event = {
-      summary: `Lezione di ${data.sport} - ${data.clientName}`,
-      location: data.location,
-      description: `
+      oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
+      const calendar = google.calendar({version: "v3", auth: oauth2Client});
+      const eventDescription = `
         <b>Dettagli Cliente:</b>
         - Nome: ${data.clientName}
         - Email: ${data.clientEmail}
@@ -328,44 +325,48 @@ app.post(
 
         <b>Note:</b>
         <pre>${data.message || "Nessuna nota."}</pre>
-      `.replace(/(\r\n|\n|\r)/gm, "").replace(/\s+/g, " ").trim(),
-      start: {
-        dateTime: data.startTime,
-        timeZone: "Europe/Rome",
-      },
-      end: {
-        dateTime: data.endTime,
-        timeZone: "Europe/Rome",
-      },
-      attendees: [{email: data.clientEmail}],
-      reminders: {
-        useDefault: false,
-        overrides: [
-          {method: "email", minutes: 24 * 60},
-          {method: "popup", minutes: 120},
-        ],
-      },
-    };
+      `.replace(/(\r\n|\n|\r)/gm, "").replace(/\s+/g, " ").trim();
+      const event = {
+        summary: `Lezione di ${data.sport} - ${data.clientName}`,
+        location: data.location,
+        description: eventDescription,
+        start: {
+          dateTime: data.startTime,
+          timeZone: "Europe/Rome",
+        },
+        end: {
+          dateTime: data.endTime,
+          timeZone: "Europe/Rome",
+        },
+        attendees: [{email: data.clientEmail}],
+        reminders: {
+          useDefault: false,
+          overrides: [
+            {method: "email", minutes: 24 * 60},
+            {method: "popup", minutes: 120},
+          ],
+        },
+      };
 
-    try {
-      const response = await calendar.events.insert({
-        calendarId: data.targetCalendarId || "primary",
-        requestBody: event,
-        sendUpdates: "all",
-      });
-      res.json({data: {
-        eventCreated: true,
-        eventId: response.data.id,
-      }});
-    } catch (err) {
-      console.error("Errore creazione evento Google:", err);
-      res.json({data: {
-        eventCreated: false,
-        eventId: null,
-        error: "Impossibile creare l'evento su Google Calendar.",
-      }});
-    }
-  })
+      try {
+        const response = await calendar.events.insert({
+          calendarId: data.targetCalendarId || "primary",
+          requestBody: event,
+          sendUpdates: "all",
+        });
+        res.json({data: {
+          eventCreated: true,
+          eventId: response.data.id,
+        }});
+      } catch (err) {
+        console.error("Errore creazione evento Google:", err);
+        res.json({data: {
+          eventCreated: false,
+          eventId: null,
+          error: "Impossibile creare l'evento su Google Calendar.",
+        }});
+      }
+    }),
 );
 
 // Esporta l'app Express come una singola Cloud Function.
