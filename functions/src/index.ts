@@ -46,10 +46,9 @@ const getOauth2Client = () => {
     !GOOGLEAPI_REDIRECT_URI
   ) {
     console.error("Variabili d'ambiente Google API non definite!");
-    throw new functions.https.HttpsError(
-      "failed-precondition",
-      "Configurazione API Google mancante."
-    );
+    // FIX: Throw a standard error instead of an HttpsError,
+    // which is not meant for Express handlers.
+    throw new Error("Configurazione API Google mancante sul server.");
   }
 
   return new google.auth.OAuth2(
@@ -63,38 +62,37 @@ const getAdminUid = () => {
   const ADMIN_UID = functionsConfig.admin?.uid;
   if (!ADMIN_UID) {
     console.error("ADMIN_UID non è configurato nelle variabili d'ambiente!");
-    throw new functions.https.HttpsError(
-      "failed-precondition",
-      "Configurazione Admin UID mancante."
-    );
+    // FIX: Throw a standard error for proper handling in Express.
+    throw new Error("Configurazione Admin UID mancante sul server.");
   }
   return ADMIN_UID;
 };
 
 // @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
+// FIX: Rewritten with a robust try-catch block to prevent server crashes on auth/config failures.
 const adminAuthMiddleware = async (
   req: express.Request,
   res: express.Response,
   next: express.NextFunction
 ) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(403).json({error: {message: "Unauthorized"}});
-  }
-  const idToken = authHeader.split("Bearer ")[1];
   try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(403).json({error: {message: "Unauthorized: Missing token"}});
+    }
+    const adminUid = getAdminUid(); // This can throw
+    const idToken = authHeader.split("Bearer ")[1];
     const decodedToken = await getAuth().verifyIdToken(idToken);
-    if (decodedToken.uid !== getAdminUid()) {
+    if (decodedToken.uid !== adminUid) {
       return res.status(403).json({error: {message: "Permission denied."}});
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (req as any).user = decodedToken;
     next();
-    return;
-  } catch (error) {
-    console.error("Errore durante la verifica del token:", error);
-    res.status(403).json({error: {message: "Unauthorized"}});
-    return;
+  } catch (error: any) {
+    console.error("Errore durante la verifica del token:", error.message);
+    // Respond with a clear error message instead of crashing
+    res.status(403).json({error: {message: `Unauthorized: ${error.message}`}});
   }
 };
 
@@ -148,9 +146,9 @@ app.post(
         }
       }
       return res.json({data: busyIntervals});
-    } catch (error) {
-      console.error("Errore recupero slot:", error);
-      return res.status(500).json({error: {message: "Errore interno."}});
+    } catch (error: any) {
+      console.error("Errore recupero slot:", error.message);
+      return res.status(500).json({error: {message: error.message || "Errore interno."}});
     }
   }
 );
@@ -196,13 +194,13 @@ app.post(
       });
 
       return res.json({data: {eventCreated: true, eventId: response.data.id}});
-    } catch (error) {
-      console.error("Errore creazione evento:", error);
+    } catch (error: any) {
+      console.error("Errore creazione evento:", error.message);
       return res.status(500).json({
         data: {
           eventCreated: false,
           eventId: null,
-          error: "Impossibile creare evento su calendario admin.",
+          error: `Impossibile creare evento su calendario admin: ${error.message}`,
         },
       });
     }
@@ -210,18 +208,24 @@ app.post(
 );
 
 // @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
+// FIX: Add a try-catch block to prevent crashes if config is missing.
 app.post(
   "/getAuthURL",
   adminAuthMiddleware,
   async (req: express.Request, res: express.Response) => {
-    const oauth2Client = getOauth2Client();
-    const scopes = ["https://www.googleapis.com/auth/calendar"];
-    const url = oauth2Client.generateAuthUrl({
-      access_type: "offline",
-      prompt: "consent",
-      scope: scopes,
-    });
-    return res.json({data: {url}});
+    try {
+      const oauth2Client = getOauth2Client();
+      const scopes = ["https://www.googleapis.com/auth/calendar"];
+      const url = oauth2Client.generateAuthUrl({
+        access_type: "offline",
+        prompt: "consent",
+        scope: scopes,
+      });
+      return res.json({data: {url}});
+    } catch (error: any) {
+      console.error("Errore in getAuthURL:", error.message);
+      return res.status(500).json({error: {message: error.message}});
+    }
   }
 );
 
@@ -253,8 +257,8 @@ app.get("/oauthcallback",
         </div>
         </body></html>`;
       res.send(htmlResponse);
-    } catch (error) {
-      console.error("Errore scambio codice autorizzazione:", error);
+    } catch (error: any) {
+      console.error("Errore scambio codice autorizzazione:", error.message);
       res.status(500).send("Errore autorizzazione. Controlla i log.");
     }
   }
@@ -265,27 +269,32 @@ app.post(
   "/checkTokenStatus",
   adminAuthMiddleware,
   async (req: express.Request, res: express.Response) => {
-    const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
-    const tokenDoc = await tokenDocRef.get();
-    const tokens = tokenDoc.data();
+    try {
+      const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
+      const tokenDoc = await tokenDocRef.get();
+      const tokens = tokenDoc.data();
 
-    if (tokenDoc.exists && tokens?.refresh_token) {
-      try {
-        const oauth2Client = getOauth2Client();
-        oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
-        const calendar = google.calendar({version: "v3", auth: oauth2Client});
-        const cal = await calendar.calendars.get({calendarId: "primary"});
-        return res.json({data: {isConnected: true, email: cal.data.id}});
-      } catch (error) {
-        await tokenDocRef.delete();
-        return res.json({data: {
-          isConnected: false,
-          email: null,
-          error: "Token non valido. Riconnettersi.",
-        }});
+      if (tokenDoc.exists && tokens?.refresh_token) {
+        try {
+          const oauth2Client = getOauth2Client();
+          oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
+          const calendar = google.calendar({version: "v3", auth: oauth2Client});
+          const cal = await calendar.calendars.get({calendarId: "primary"});
+          return res.json({data: {isConnected: true, email: cal.data.id}});
+        } catch (error) {
+          await tokenDocRef.delete();
+          return res.json({data: {
+            isConnected: false,
+            email: null,
+            error: "Token non valido. Riconnettersi.",
+          }});
+        }
       }
+      return res.json({data: {isConnected: false, email: null}});
+    } catch (error: any) {
+      console.error("Errore in checkTokenStatus:", error.message);
+      return res.status(500).json({error: {message: error.message}});
     }
-    return res.json({data: {isConnected: false, email: null}});
   }
 );
 
@@ -294,42 +303,53 @@ app.post(
   "/disconnectGoogleAccount",
   adminAuthMiddleware,
   async (req: express.Request, res: express.Response) => {
-    const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
-    const tokenDoc = await tokenDocRef.get();
-    if (tokenDoc.exists && tokenDoc.data()?.refresh_token) {
-      try {
-        const token = tokenDoc.data()?.refresh_token;
-        await getOauth2Client().revokeToken(token);
-      } catch (e) {
-        console.error("Revoca token fallita, elimino dal DB.", e);
+    try {
+      const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
+      const tokenDoc = await tokenDocRef.get();
+      if (tokenDoc.exists && tokenDoc.data()?.refresh_token) {
+        try {
+          const token = tokenDoc.data()?.refresh_token;
+          await getOauth2Client().revokeToken(token);
+        } catch (e) {
+          console.error("Revoca token fallita, elimino dal DB.", e);
+        }
       }
+      await tokenDocRef.delete();
+      return res.json({data: {success: true}});
+    } catch (error: any) {
+      console.error("Errore in disconnectGoogleAccount:", error.message);
+      return res.status(500).json({error: {message: error.message}});
     }
-    await tokenDocRef.delete();
-    return res.json({data: {success: true}});
   }
 );
 
 // @google/genai-api-fix: Use explicit express types to avoid conflicts with Firebase functions types.
+// FIX: Add a try-catch block to handle potential errors and prevent crashes.
 app.post(
   "/listGoogleCalendars",
   adminAuthMiddleware,
   async (req: express.Request, res: express.Response) => {
-    const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
-    const tokenDoc = await tokenDocRef.get();
-    const tokens = tokenDoc.data();
-    if (!tokenDoc.exists || !tokens?.refresh_token) {
-      return res.status(404).json({error: {message: "Token non trovato."}});
+    try {
+      const tokenDocRef = db.collection("admin_tokens").doc(getAdminUid());
+      const tokenDoc = await tokenDocRef.get();
+      const tokens = tokenDoc.data();
+      if (!tokenDoc.exists || !tokens?.refresh_token) {
+        return res.status(404).json({error: {message: "Token non trovato."}});
+      }
+      const oauth2Client = getOauth2Client();
+      oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
+      const calendar = google.calendar({version: "v3", auth: oauth2Client});
+      const response = await calendar.calendarList.list({});
+      const calendarList = response.data.items?.map((cal) => ({
+        id: cal.id,
+        summary: cal.summary,
+        primary: cal.primary,
+      })) || [];
+      return res.json({data: calendarList});
+    } catch (error: any) {
+      console.error("Errore in listGoogleCalendars:", error.message);
+      return res.status(500).json({error: {message: error.message}});
     }
-    const oauth2Client = getOauth2Client();
-    oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
-    const calendar = google.calendar({version: "v3", auth: oauth2Client});
-    const response = await calendar.calendarList.list({});
-    const calendarList = response.data.items?.map((cal) => ({
-      id: cal.id,
-      summary: cal.summary,
-      primary: cal.primary,
-    })) || [];
-    return res.json({data: calendarList});
   }
 );
 
