@@ -14,8 +14,10 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     const [saving, setSaving] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
 
-    const checkStatus = useCallback(async () => {
-        setLoadingStatus(true);
+    const checkStatus = useCallback(async (options: {isInitialCheck: boolean}) => {
+        if (!options.isInitialCheck) {
+             setLoadingStatus(true);
+        }
         setApiError(null);
         try {
             const status = await GCal.checkGoogleConnection();
@@ -27,7 +29,9 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                     setCalendars(calList);
                 } catch (error: any) {
                     console.error("Failed to load calendars:", error);
-                    setApiError(`Impossibile caricare i calendari: ${error.message}`);
+                    if (!options.isInitialCheck) {
+                       setApiError(`Impossibile caricare i calendari: ${error.message}`);
+                    }
                     setCalendars([]);
                 } finally {
                     setLoadingCalendars(false);
@@ -37,7 +41,10 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             }
         } catch (error: any) {
             console.error("Failed to check connection status:", error);
-            setApiError(`Errore di comunicazione con il server: ${error.message}. Verifica la configurazione CORS.`);
+             // Mostra l'errore solo se non è il check iniziale e silenzioso
+            if (!options.isInitialCheck) {
+                 setApiError(`Errore di comunicazione con il server: ${error.message}.`);
+            }
             setConnectionStatus({ isConnected: false, email: null });
         } finally {
             setLoadingStatus(false);
@@ -45,7 +52,9 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     }, []);
 
     useEffect(() => {
-        checkStatus();
+        // Esegui il check iniziale in modo "silenzioso".
+        // Se fallisce, l'utente non vedrà un errore, ma solo lo stato "Non Connesso".
+        checkStatus({ isInitialCheck: true });
     }, [checkStatus]);
     
     useEffect(() => {
@@ -58,18 +67,17 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             const authUrl = await GCal.getGoogleAuthUrl();
             const popup = window.open(authUrl, 'google-auth', 'width=500,height=600');
             
-            // Periodically check if the popup is closed
             const checkPopup = setInterval(() => {
                 if (!popup || popup.closed) {
                     clearInterval(checkPopup);
-                    // Refresh status after popup is closed
-                    checkStatus();
+                    // Ora eseguiamo un check "rumoroso", perché l'utente si aspetta un risultato
+                    checkStatus({ isInitialCheck: false });
                 }
             }, 1000);
 
         } catch (error: any) {
             console.error("Google connection failed:", error);
-            setApiError(`Impossibile connettersi a Google: ${error.message}`);
+            setApiError(`Impossibile avviare la connessione con Google: ${error.message}`);
         }
     };
 
@@ -78,7 +86,7 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             setApiError(null);
             try {
                 await GCal.disconnectGoogleAccount();
-                checkStatus(); // Refresh status
+                checkStatus({ isInitialCheck: false }); // Refresh status
             } catch (error: any) {
                 setApiError(`Errore durante la disconnessione: ${error.message}`);
             }
@@ -140,7 +148,7 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
 
                 {apiError && (
                     <div className="mt-4 bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-sm">
-                        <strong>Errore API:</strong> {apiError}
+                        <strong>Errore:</strong> {apiError}
                     </div>
                 )}
             </div>
