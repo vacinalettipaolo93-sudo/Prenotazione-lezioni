@@ -18,21 +18,24 @@ const EXAMPLE_CONSTANTS = {
 
 
 // L'app non usa Vite, quindi `import.meta.env` non è disponibile. 
-// Verrà usato `process.env` per accedere alle variabili d'ambiente.
-export const ADMIN_UID: string = process.env.VITE_FIREBASE_ADMIN_UID || EXAMPLE_CONSTANTS.ADMIN_UID;
+// Usiamo un controllo per accedere in modo sicuro a `process.env` in un ambiente
+// non-Node (browser) dove potrebbe non essere definito, prevenendo un crash.
+const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+
+export const ADMIN_UID: string = env.VITE_FIREBASE_ADMIN_UID || EXAMPLE_CONSTANTS.ADMIN_UID;
 
 export const FIREBASE_CONFIG = {
-  apiKey: process.env.VITE_FIREBASE_API_KEY || EXAMPLE_CONSTANTS.FIREBASE_API_KEY,
-  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || EXAMPLE_CONSTANTS.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.VITE_FIREBASE_PROJECT_ID || EXAMPLE_CONSTANTS.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || EXAMPLE_CONSTANTS.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || EXAMPLE_CONSTANTS.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.VITE_FIREBASE_APP_ID || EXAMPLE_CONSTANTS.FIREBASE_APP_ID
+  apiKey: env.VITE_FIREBASE_API_KEY || EXAMPLE_CONSTANTS.FIREBASE_API_KEY,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || EXAMPLE_CONSTANTS.FIREBASE_AUTH_DOMAIN,
+  projectId: env.VITE_FIREBASE_PROJECT_ID || EXAMPLE_CONSTANTS.FIREBASE_PROJECT_ID,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || EXAMPLE_CONSTANTS.FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || EXAMPLE_CONSTANTS.FIREBASE_MESSAGING_SENDER_ID,
+  appId: env.VITE_FIREBASE_APP_ID || EXAMPLE_CONSTANTS.FIREBASE_APP_ID
 };
 
 export const GOOGLE_API_CONFIG = {
-  API_KEY: process.env.VITE_GOOGLE_API_KEY || EXAMPLE_CONSTANTS.GOOGLE_API_KEY,
-  CLIENT_ID: process.env.VITE_GOOGLE_CLIENT_ID || EXAMPLE_CONSTANTS.GOOGLE_CLIENT_ID,
+  API_KEY: env.VITE_GOOGLE_API_KEY || EXAMPLE_CONSTANTS.GOOGLE_API_KEY,
+  CLIENT_ID: env.VITE_GOOGLE_CLIENT_ID || EXAMPLE_CONSTANTS.GOOGLE_CLIENT_ID,
   SCOPES: "https://www.googleapis.com/auth/calendar"
 };
 

@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, loginWithEmail, getAppSettings } from './services/firebase';
-import { type AppUser, type AppSettings } from './types';
+import { type AppUser, type AppSettings, type AICompletions } from './types';
 import Spinner from './components/Spinner';
 import AdminDashboard from './components/AdminDashboard';
 import BookingFlow from './components/BookingFlow';
 import { FIREBASE_CONFIG, GOOGLE_API_CONFIG, ADMIN_UID } from './constants';
-// import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext'; // Rimosso
+import AICompanion from './components/AICompanion';
 
 type View = 'home' | 'booking' | 'login' | 'admin';
 
@@ -44,7 +44,6 @@ const App: React.FC = () => {
     );
   }
 
-  // Rimosso GoogleCalendarProvider
   return (
       <>
           {user ? <AdminDashboard user={user} /> : <PublicApp />}
@@ -55,25 +54,34 @@ const App: React.FC = () => {
 const PublicApp: React.FC = () => {
     const [view, setView] = useState<View>('home');
     const [selectedSport, setSelectedSport] = useState<string | null>(null);
+    const [prefilledBooking, setPrefilledBooking] = useState<AICompletions | null>(null);
 
-    const handleSelectSport = (sport: string) => {
+    const handleSelectSport = (sport: string, details?: AICompletions) => {
         setSelectedSport(sport);
+        setPrefilledBooking(details || null);
         setView('booking');
     };
+    
+    const handleAIParsed = (details: AICompletions) => {
+        if(details.sport) {
+            handleSelectSport(details.sport, details);
+        }
+    }
 
     const handleBackToHome = () => {
         setSelectedSport(null);
+        setPrefilledBooking(null);
         setView('home');
     };
 
     switch(view) {
         case 'booking':
-            return selectedSport ? <BookingPage sport={selectedSport} onBack={handleBackToHome} /> : <HomeScreen onSelectSport={handleSelectSport} setView={setView} />;
+            return selectedSport ? <BookingPage sport={selectedSport} onBack={handleBackToHome} prefilled={prefilledBooking} /> : <HomeScreen onSelectSport={handleSelectSport} setView={setView} onAIParsed={handleAIParsed} />;
         case 'login':
             return <LoginScreen onBack={handleBackToHome} />;
         case 'home':
         default:
-            return <HomeScreen onSelectSport={handleSelectSport} setView={setView} />;
+            return <HomeScreen onSelectSport={handleSelectSport} setView={setView} onAIParsed={handleAIParsed} />;
     }
 }
 
@@ -112,7 +120,7 @@ const ConfigurationNeededScreen: React.FC = () => {
 // Sub-components per le diverse viste
 // =================================================================
 
-const HomeScreen: React.FC<{onSelectSport: (sport: string) => void, setView: (view: View) => void}> = ({ onSelectSport, setView }) => {
+const HomeScreen: React.FC<{onSelectSport: (sport: string) => void, setView: (view: View) => void, onAIParsed: (details: AICompletions) => void}> = ({ onSelectSport, setView, onAIParsed }) => {
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [loading, setLoading] = useState(true);
 
@@ -145,6 +153,7 @@ const HomeScreen: React.FC<{onSelectSport: (sport: string) => void, setView: (vi
                   <SportCard key={service.id} sport={service.name} emoji={service.emoji} onClick={() => onSelectSport(service.name)} />
               ))}
             </div>
+            <AICompanion onBookingParsed={onAIParsed} />
           </div>
           <button 
             onClick={() => setView('login')}
@@ -256,12 +265,12 @@ const LoginScreen: React.FC<{onBack: () => void}> = ({ onBack }) => {
     );
 };
 
-const BookingPage: React.FC<{sport: string, onBack: () => void}> = ({ sport, onBack }) => {
+const BookingPage: React.FC<{sport: string, onBack: () => void, prefilled: AICompletions | null}> = ({ sport, onBack, prefilled }) => {
     return (
         <div className="bg-gray-900 min-h-screen">
              <div className="container mx-auto p-4 md:p-8">
                 <button onClick={onBack} className="mb-6 text-emerald-400 hover:text-emerald-300 font-semibold">&larr; Cambia Sport</button>
-                <BookingFlow sport={sport} />
+                <BookingFlow sport={sport} prefilled={prefilled} />
             </div>
         </div>
     );

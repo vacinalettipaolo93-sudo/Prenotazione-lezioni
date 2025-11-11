@@ -94,3 +94,11 @@ export interface AppSettings {
     durations: DurationOption[];
   }>;
 }
+
+export interface AICompletions {
+    sport?: string;
+    date?: string; // YYYY-MM-DD
+    timeOfDay?: 'mattina' | 'pomeriggio' | 'sera';
+    location?: string;
+    people?: number;
+}

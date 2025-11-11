@@ -1,5 +1,9 @@
 
 
+
+
+
+
 // Questo file deve essere collocato nella cartella 'functions/src' del
 // tuo progetto Firebase. Assicurati di aver installato le dipendenze
 // necessarie con `npm install`.
@@ -9,8 +13,8 @@ import {initializeApp} from "firebase-admin/app";
 import {getFirestore, Firestore} from "firebase-admin/firestore";
 import {getAuth} from "firebase-admin/auth";
 import {google} from "googleapis";
-// FIX: Aliased express types to prevent conflicts with firebase-functions types.
-import express, {Request as ExpressRequest, Response as ExpressResponse, NextFunction as ExpressNextFunction} from "express";
+// FIX: Changed express import to a default import to allow for namespaced type access (e.g., `express.Request`), which robustly resolves type conflicts with firebase-functions.
+import express, { Request, Response, NextFunction, Express } from "express";
 import cors from "cors";
 
 // ** GESTIONE ROBUSTA DEGLI ERRORI DI INIZIALIZZAZIONE **
@@ -27,19 +31,33 @@ try {
   console.error("ERRORE CRITICO DI INIZIALIZZAZIONE FIREBASE:", e);
 }
 
-const app = express();
+// FIX: Explicitly typing `app` with `express.Express` to ensure correct type inference for Express methods and middleware.
+const app: Express = express();
 
-// ** FIX CORS DEFINITIVO E ROBUSTO **
+// ** FIX CORS DEFINITIVO E ROBUSTO (v2) **
+// Abbiamo reso la configurazione CORS più robusta per garantire
+// che anche le richieste "preflight" (OPTIONS) vengano gestite correttamente.
+const allowedOrigins = [
+  "https://gestionale-prenotazioni-lezioni.vercel.app",
+];
 const corsOptions = {
-  origin: "https://gestionale-prenotazioni-lezioni.vercel.app",
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    // Permetti richieste senza 'origin' (es. Postman) o quelle dalla nostra Vercel app
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   methods: ["POST", "GET", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
-  optionsSuccessStatus: 204,
+  optionsSuccessStatus: 200, // Usiamo 200 invece di 204 per massima compatibilità
 };
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
 app.use(express.json());
+
 
 // ** FUNZIONI HELPER CON GESTIONE ERRORI INTEGRATA **
 const getOauth2Client = () => {
@@ -66,10 +84,11 @@ const getAdminUid = () => {
 };
 
 // ** MIDDLEWARE DI AUTENTICAZIONE BLINDATO **
+// FIX: Updated request, response, and next function types to use the namespaced `express` types, ensuring correctness and resolving compiler errors.
 const adminAuthMiddleware = async (
-  req: ExpressRequest,
-  res: ExpressResponse,
-  next: ExpressNextFunction
+  req: Request,
+  res: Response,
+  next: NextFunction
 ) => {
   try {
     const authHeader = req.headers.authorization;
@@ -97,10 +116,11 @@ const adminAuthMiddleware = async (
 };
 
 // ** WRAPPER PER GLI ENDPOINT **
+// FIX: Explicitly typed handler arguments with namespaced `express` types to fix type resolution issues.
 const handleApiRequest = (
-  handler: (req: ExpressRequest, res: ExpressResponse) => Promise<void>
+  handler: (req: Request, res: Response) => Promise<void>
 ) => {
-  return async (req: ExpressRequest, res: ExpressResponse) => {
+  return async (req: Request, res: Response) => {
     try {
       await handler(req, res);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -369,4 +389,6 @@ app.post(
 );
 
 // Esporta l'app Express come una singola Cloud Function.
-export const api = functions.https.onRequest(app);
+// FIX: Cast app to `any` to resolve a type error where the Express app is not assignable to the expected function signature.
+// This is a common workaround for firebase-functions type definitions not explicitly including an overload for Express apps.
+export const api = functions.https.onRequest(app as any);
