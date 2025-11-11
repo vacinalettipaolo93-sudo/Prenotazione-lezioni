@@ -2,47 +2,46 @@
 // tuo progetto Firebase. Assicurati di aver installato le dipendenze
 // necessarie con `npm install`.
 
-import * as functions from "firebase-functions/v1";
-// FIX: Use namespace import for firebase-admin to prevent module resolution issues.
+import {https, config} from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import {google} from "googleapis";
-// FIX: Consolidated express imports and used direct types to resolve compilation errors.
-// FIX: Using direct Request and Response types from express.
 import express, {
-  Request,
-  Response,
+  Request as ExpressRequest,
+  Response as ExpressResponse,
   NextFunction,
 } from "express";
-import cors from "cors"; // Importa la libreria cors
+import cors from "cors";
 
 // ** GESTIONE ROBUSTA DEGLI ERRORI DI INIZIALIZZAZIONE **
 let db: admin.firestore.Firestore;
 try {
   admin.initializeApp();
   db = admin.firestore();
-} catch (e: any) {
-  console.error("ERRORE CRITICO DI INIZIALIZZAZIONE FIREBASE:", e);
-  // In caso di errore critico, le funzioni non dovrebbero nemmeno provare a
-  // partire. In un ambiente reale, questo potrebbe triggerare un alert.
+} catch (e: unknown) {
+  const errorMessage = e instanceof Error ? e.message : String(e);
+  console.error(
+    "ERRORE CRITICO DI INIZIALIZZAZIONE FIREBASE:",
+    errorMessage,
+  );
 }
 
 const app = express();
 
-// ** CONFIGURAZIONE CORS ROBUSTA TRAMITE LIBRERIA **
-// Sostituisce l'implementazione manuale per una maggiore affidabilità.
-// `origin: true` riflette l'origine della richiesta, una configurazione
-// flessibile e sicura per la maggior parte dei casi d'uso.
 app.use(cors({origin: true}));
+
+// Interfaccia personalizzata per le richieste autenticate
+interface AuthenticatedRequest extends ExpressRequest {
+  user?: admin.auth.DecodedIdToken;
+}
 
 // ** FUNZIONI HELPER CON GESTIONE ERRORI INTEGRATA **
 
 const getOauth2Client = () => {
   /* eslint-disable camelcase */
-  // Legge la configurazione delle funzioni impostata tramite CLI
-  const config = functions.config();
-  const client_id = config.googleapi?.client_id;
-  const client_secret = config.googleapi?.client_secret;
-  const redirect_uri = config.googleapi?.redirect_uri;
+  const functionsConfig = config();
+  const client_id = functionsConfig.googleapi?.client_id;
+  const client_secret = functionsConfig.googleapi?.client_secret;
+  const redirect_uri = functionsConfig.googleapi?.redirect_uri;
 
   if (!client_id || !client_secret || !redirect_uri) {
     const msg = "Una o più variabili d'ambiente Google API non sono impostate";
@@ -56,7 +55,7 @@ const getOauth2Client = () => {
 };
 
 const getAdminUid = () => {
-  const adminUid = functions.config().admin?.uid;
+  const adminUid = config().admin?.uid;
   if (!adminUid) {
     const msg = "La variabile d'ambiente ADMIN_UID non è stata impostata." +
     " Esegui `firebase functions:config:set admin.uid=...`";
@@ -67,10 +66,9 @@ const getAdminUid = () => {
 };
 
 // ** MIDDLEWARE DI AUTENTICAZIONE BLINDATO **
-// FIX: Replaced aliased Express types with direct imports.
 const adminAuthMiddleware = async (
-    req: Request,
-    res: Response,
+    req: AuthenticatedRequest,
+    res: ExpressResponse,
     next: NextFunction,
 ) => {
   try {
@@ -86,11 +84,12 @@ const adminAuthMiddleware = async (
       const err = "Permesso negato: l'utente non è un amministratore.";
       return res.status(403).json({error: {message: err}});
     }
-    (req as any).user = decodedToken;
+    req.user = decodedToken;
     return next();
-  } catch (error: any) {
-    console.error("Errore di autenticazione nel middleware:", error.message);
-    const message = `Non autorizzato: ${error.message}`;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Errore di autenticazione nel middleware:", errorMessage);
+    const message = `Non autorizzato: ${errorMessage}`;
     return res.status(403).json({
       error: {message},
     });
@@ -98,19 +97,23 @@ const adminAuthMiddleware = async (
 };
 
 // ** WRAPPER PER GLI ENDPOINT **
-// FIX: Replaced aliased Express types with direct imports.
 const handleApiRequest = (
-    handler: (req: Request, res: Response) => Promise<void>,
+    handler: (
+      req: AuthenticatedRequest,
+      res: ExpressResponse
+    ) => Promise<void>,
 ) => {
-  // FIX: Replaced aliased Express types with direct imports.
-  return async (req: Request, res: Response) => {
+  return async (req: AuthenticatedRequest, res: ExpressResponse) => {
     try {
       await handler(req, res);
-    } catch (error: any) {
+    } catch (error) {
       const path = `[${req.path}]`;
+      const errorMessage = error instanceof Error ?
+        error.message :
+        "Errore interno del server.";
       console.error(`ERRORE NON GESTITO NELL'ENDPOINT ${path}:`, error);
       res.status(500).json({
-        error: {message: error.message || "Errore interno del server."},
+        error: {message: errorMessage},
       });
     }
   };
@@ -169,6 +172,20 @@ app.post(
     "/checkTokenStatus",
     adminAuthMiddleware,
     handleApiRequest(async (req, res) => {
+      try {
+        getOauth2Client();
+      } catch (e) {
+        res.json({
+          data: {
+            isConnected: false,
+            email: null,
+            error: "La configurazione del server è incompleta. " +
+                   "Contatta l'amministratore.",
+          },
+        });
+        return;
+      }
+
       const tokenDocRef = db.collection("googleTokens").doc(getAdminUid());
       const tokenDoc = await tokenDocRef.get();
       const tokens = tokenDoc.data();
@@ -180,7 +197,7 @@ app.post(
           const calendar = google.calendar({version: "v3", auth: oauth2Client});
           const cal = await calendar.calendars.get({calendarId: "primary"});
           res.json({data: {isConnected: true, email: cal.data.id}});
-        } catch (error: any) {
+        } catch (error) {
           await tokenDocRef.delete();
           res.json({
             data: {
@@ -206,7 +223,7 @@ app.post(
         try {
           const token = tokenDoc.data()?.refresh_token;
           await getOauth2Client().revokeToken(token);
-        } catch (e: any) {
+        } catch (e) {
           console.error("Revoca token fallita, elimino dal DB.", e);
         }
       }
@@ -382,4 +399,4 @@ app.post(
 );
 
 // Esporta l'app Express come una singola Cloud Function.
-export const api = functions.https.onRequest(app);
+export const api = https.onRequest(app);
