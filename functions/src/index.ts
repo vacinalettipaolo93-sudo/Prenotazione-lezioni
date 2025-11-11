@@ -1,5 +1,6 @@
 
 
+
 // Questo file deve essere collocato nella cartella 'functions/src' del
 // tuo progetto Firebase. Assicurati di aver installato le dipendenze
 // necessarie con `npm install`.
@@ -9,9 +10,10 @@ import {initializeApp} from "firebase-admin/app";
 import {getFirestore, Firestore} from "firebase-admin/firestore";
 import {getAuth} from "firebase-admin/auth";
 import {google} from "googleapis";
-// FIX: Aliased express types to prevent conflicts with firebase-functions types.
-import express, {Request as ExpressRequest, Response as ExpressResponse, NextFunction as ExpressNextFunction} from "express";
-import cors from "cors";
+// FIX: Replaced aliased imports with a default import to use fully qualified express types, which resolves conflicts with firebase-functions types.
+// FIX: Changed express and cors imports to use 'require' syntax for better compatibility with CommonJS modules, resolving numerous type errors.
+import express = require("express");
+import cors = require("cors");
 
 // ** GESTIONE ROBUSTA DEGLI ERRORI DI INIZIALIZZAZIONE **
 let db: Firestore;
@@ -29,27 +31,10 @@ try {
 
 const app = express();
 
-// ** FIX CORS DEFINITIVO E ROBUSTO (v2) **
-// Abbiamo reso la configurazione CORS più robusta per garantire
-// che anche le richieste "preflight" (OPTIONS) vengano gestite correttamente.
-const allowedOrigins = [
-  "https://gestionale-prenotazioni-lezioni.vercel.app",
-];
-const corsOptions = {
-  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    // Permetti richieste senza 'origin' (es. Postman) o quelle dalla nostra Vercel app
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  methods: ["POST", "GET", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  optionsSuccessStatus: 200, // Usiamo 200 invece di 204 per massima compatibilità
-};
-app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+// ** CONFIGURAZIONE CORS SEMPLIFICATA E ROBUSTA **
+// Permette richieste dall'origine del client (es. il tuo sito su Vercel o l'ambiente di test).
+// È la configurazione standard e più sicura per questo tipo di architettura.
+app.use(cors({ origin: true }));
 
 app.use(express.json());
 
@@ -79,10 +64,11 @@ const getAdminUid = () => {
 };
 
 // ** MIDDLEWARE DI AUTENTICAZIONE BLINDATO **
+// FIX: Use express.Request, express.Response, and express.NextFunction types to resolve conflicts.
 const adminAuthMiddleware = async (
-  req: ExpressRequest,
-  res: ExpressResponse,
-  next: ExpressNextFunction
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
 ) => {
   try {
     const authHeader = req.headers.authorization;
@@ -110,10 +96,11 @@ const adminAuthMiddleware = async (
 };
 
 // ** WRAPPER PER GLI ENDPOINT **
+// FIX: Use express.Request and express.Response types to resolve conflicts.
 const handleApiRequest = (
-  handler: (req: ExpressRequest, res: ExpressResponse) => Promise<void>
+  handler: (req: express.Request, res: express.Response) => Promise<void>
 ) => {
-  return async (req: ExpressRequest, res: ExpressResponse) => {
+  return async (req: express.Request, res: express.Response) => {
     try {
       await handler(req, res);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

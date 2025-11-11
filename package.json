@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-dom": "^19.2.0",
-    "react": "^19.2.0",
+    "react-dom": "^18.3.1",
+    "react": "^18.3.1",
     "firebase": "^12.5.0",
     "firebase-functions": "^6.6.0",
     "googleapis": "^165.0.0",
