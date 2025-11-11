@@ -1,7 +1,9 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-import express = require("express");
-import cors = require("cors");
+// FIX: Use ES module import syntax for Express to ensure correct type definitions are loaded.
+import express from "express";
+// FIX: Use ES module import syntax for CORS to ensure correct type definitions are loaded.
+import cors from "cors";
 import { google } from "googleapis";
 import { type DecodedIdToken } from "firebase-admin/auth";
 
@@ -11,30 +13,44 @@ const db = admin.firestore();
 const app = express();
 
 // --- CONFIGURAZIONE ---
-// Utilizza CORS per permettere le chiamate dal frontend
-app.use(cors({ origin: true }));
+
+// Lista delle origini autorizzate a chiamare questa API
+const allowedOrigins = [
+    "https://gestionale-prenotazioni-lezioni.vercel.app",
+    // Se usi un emulatore in locale, aggiungi anche:
+    // "http://localhost:3000",
+];
+
+// Configurazione CORS per accettare solo le chiamate dalle origini autorizzate
+const corsOptions: cors.CorsOptions = {
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("Not allowed by CORS"));
+        }
+    },
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Recupera le credenziali di Google dalle variabili d'ambiente di Firebase
 // Esegui questi comandi per configurarle:
-// firebase functions:config:set google.client_id="YOUR_CLIENT_ID"
-// firebase functions:config:set google.client_secret="YOUR_CLIENT_SECRET"
-// firebase functions:config:set admin.uid="YOUR_ADMIN_UID"
-const GOOGLE_CLIENT_ID = functions.config().google.client_id;
-const GOOGLE_CLIENT_SECRET = functions.config().google.client_secret;
-const ADMIN_UID = functions.config().admin.uid;
+// firebase functions:config:set googleapi.client_id="YOUR_CLIENT_ID"
+// firebase functions:config:set googleapi.client_secret="YOUR_CLIENT_SECRET"
+// firebase functions:config:set googleapi.redirect_uri="YOUR_REDIRECT_URI"
+const GOOGLE_CLIENT_ID = functions.config().googleapi?.client_id;
+const GOOGLE_CLIENT_SECRET = functions.config().googleapi?.client_secret;
+const GOOGLE_REDIRECT_URI = functions.config().googleapi?.redirect_uri;
+const ADMIN_UID = functions.config().admin?.uid;
 
 
-// L'URL di questa funzione deve essere aggiunto come Redirect URI autorizzato
-// nella tua console Google Cloud.
-// Sarà simile a: https://us-central1-YOUR-PROJECT-ID.cloudfunctions.net/api/oauthcallback
-const REDIRECT_URL = `https://us-central1-${process.env.GCLOUD_PROJECT}.cloudfunctions.net/api/oauthcallback`;
-
-const oAuth2Client = new google.auth.OAuth2(
+const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
     GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET,
-    REDIRECT_URL
-);
+    GOOGLE_REDIRECT_URI
+) : null;
 
 // --- MIDDLEWARE DI AUTENTICAZIONE ADMIN ---
 const authenticateAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -61,6 +77,15 @@ const authenticateAdmin = async (req: express.Request, res: express.Response, ne
     }
 };
 
+// --- MIDDLEWARE DI CONTROLLO CONFIGURAZIONE ---
+const checkServerConfig = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!oAuth2Client || !ADMIN_UID) {
+        console.error("ERRORE CRITICO: La configurazione delle API di Google o l'Admin UID non sono impostate nelle Firebase Functions. Esegui `firebase functions:config:set`.");
+        return res.status(503).json({ error: { message: "Il server non è configurato correttamente per gestire le richieste a Google. Contatta l'amministratore." } });
+    }
+    return next();
+};
+
 
 // --- HELPERS ---
 
@@ -73,6 +98,7 @@ const getAdminSettingsRef = (uid: string) => db.collection("settings").doc(uid);
  * Imposta le credenziali di Google OAuth2 per l'utente admin corrente
  */
 const setGoogleAuthCredentials = async (adminUid: string) => {
+    if (!oAuth2Client) return false;
     const settingsDoc = await getAdminSettingsRef(adminUid).get();
     const settings = settingsDoc.data();
     if (settings && settings.googleRefreshToken) {
@@ -83,6 +109,8 @@ const setGoogleAuthCredentials = async (adminUid: string) => {
 };
 
 // --- ENDPOINTS ---
+// Tutti gli endpoint ora usano il middleware per controllare la configurazione del server
+app.use(checkServerConfig);
 
 /**
  * Genera l'URL per il consenso OAuth2 di Google.
@@ -90,7 +118,7 @@ const setGoogleAuthCredentials = async (adminUid: string) => {
  */
 app.post("/getAuthURL", authenticateAdmin, (req, res) => {
     const adminUid = res.locals.user.uid;
-    const authUrl = oAuth2Client.generateAuthUrl({
+    const authUrl = oAuth2Client!.generateAuthUrl({
         access_type: "offline", // Richiede un refresh_token
         prompt: "consent",      // Mostra sempre la schermata di consenso
         scope: ["https://www.googleapis.com/auth/calendar"],
@@ -118,7 +146,7 @@ app.get("/oauthcallback", async (req, res) => {
     }
 
     try {
-        const { tokens } = await oAuth2Client.getToken(code as string);
+        const { tokens } = await oAuth2Client!.getToken(code as string);
         const { refresh_token, access_token } = tokens;
 
         if (!refresh_token) {
@@ -126,7 +154,7 @@ app.get("/oauthcallback", async (req, res) => {
         }
 
         // Recupera l'email dell'utente per visualizzarla nel frontend
-        oAuth2Client.setCredentials({ access_token });
+        oAuth2Client!.setCredentials({ access_token });
         const people = google.people({ version: "v1", auth: oAuth2Client });
         const profile = await people.people.get({
             resourceName: "people/me",

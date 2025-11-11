@@ -12,9 +12,11 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     const [loadingStatus, setLoadingStatus] = useState(true);
     const [loadingCalendars, setLoadingCalendars] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [apiError, setApiError] = useState<string | null>(null);
 
     const checkStatus = useCallback(async () => {
         setLoadingStatus(true);
+        setApiError(null);
         try {
             const status = await GCal.checkGoogleConnection();
             setConnectionStatus(status);
@@ -23,8 +25,9 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                 try {
                     const calList = await GCal.listCalendars();
                     setCalendars(calList);
-                } catch (error) {
+                } catch (error: any) {
                     console.error("Failed to load calendars:", error);
+                    setApiError(`Impossibile caricare i calendari: ${error.message}`);
                     setCalendars([]);
                 } finally {
                     setLoadingCalendars(false);
@@ -32,8 +35,9 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             } else {
                 setCalendars([]);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to check connection status:", error);
+            setApiError(`Errore di comunicazione con il server: ${error.message}. Verifica la configurazione CORS.`);
             setConnectionStatus({ isConnected: false, email: null });
         } finally {
             setLoadingStatus(false);
@@ -49,6 +53,7 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     }, [initialSettings]);
 
     const handleConnect = async () => {
+        setApiError(null);
         try {
             const authUrl = await GCal.getGoogleAuthUrl();
             const popup = window.open(authUrl, 'google-auth', 'width=500,height=600');
@@ -62,16 +67,21 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                 }
             }, 1000);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Google connection failed:", error);
-            alert("Impossibile avviare la connessione con Google. Controlla la console per i dettagli.");
+            setApiError(`Impossibile connettersi a Google: ${error.message}`);
         }
     };
 
     const handleDisconnect = async () => {
         if (window.confirm("Sei sicuro di voler disconnettere il tuo account Google? Le prenotazioni non verranno più sincronizzate.")) {
-            await GCal.disconnectGoogleAccount();
-            checkStatus(); // Refresh status
+            setApiError(null);
+            try {
+                await GCal.disconnectGoogleAccount();
+                checkStatus(); // Refresh status
+            } catch (error: any) {
+                setApiError(`Errore durante la disconnessione: ${error.message}`);
+            }
         }
     };
 
@@ -87,13 +97,19 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
 
     const handleSave = async () => {
         setSaving(true);
-        await updateAppSettings({
-            locationCalendarMapping: settings.locationCalendarMapping,
-            selectedCalendarIds: settings.selectedCalendarIds
-        });
-        onSettingsChange();
-        setSaving(false);
-        alert("Impostazioni salvate!");
+        setApiError(null);
+        try {
+            await updateAppSettings({
+                locationCalendarMapping: settings.locationCalendarMapping,
+                selectedCalendarIds: settings.selectedCalendarIds
+            });
+            onSettingsChange();
+            alert("Impostazioni salvate!");
+        } catch(error: any) {
+            setApiError(`Errore durante il salvataggio: ${error.message}`);
+        } finally {
+            setSaving(false);
+        }
     };
     
     return (
@@ -119,6 +135,12 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                             <p className="text-gray-300">Collega il tuo account per iniziare.</p>
                         </div>
                         <button onClick={handleConnect} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Connetti a Google</button>
+                    </div>
+                )}
+
+                {apiError && (
+                    <div className="mt-4 bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-sm">
+                        <strong>Errore API:</strong> {apiError}
                     </div>
                 )}
             </div>
