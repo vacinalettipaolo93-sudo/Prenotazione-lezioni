@@ -1,8 +1,7 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-// FIX: Use ES module import syntax for Express to ensure correct type definitions are loaded.
-import express from "express";
-// FIX: Use ES module import syntax for CORS to ensure correct type definitions are loaded.
+// FIX: Usa import specifici per i tipi di Express per evitare conflitti
+import express, { Request as ExpressRequest, Response as ExpressResponse, NextFunction } from "express";
 import cors from "cors";
 import { google } from "googleapis";
 import { type DecodedIdToken } from "firebase-admin/auth";
@@ -17,8 +16,8 @@ const app = express();
 // Lista delle origini autorizzate a chiamare questa API
 const allowedOrigins = [
     "https://gestionale-prenotazioni-lezioni.vercel.app",
-    // Se usi un emulatore in locale, aggiungi anche:
-    // "http://localhost:3000",
+    // Se usi un emulatore in locale, aggiungi anche il tuo URL locale, es:
+    // "http://localhost:5173",
 ];
 
 // Configurazione CORS per accettare solo le chiamate dalle origini autorizzate
@@ -40,6 +39,8 @@ app.use(express.json());
 // firebase functions:config:set googleapi.client_id="YOUR_CLIENT_ID"
 // firebase functions:config:set googleapi.client_secret="YOUR_CLIENT_SECRET"
 // firebase functions:config:set googleapi.redirect_uri="YOUR_REDIRECT_URI"
+// firebase functions:config:set admin.uid="YOUR_ADMIN_UID"
+// FIX: Use functions.config() to access Firebase environment configuration.
 const GOOGLE_CLIENT_ID = functions.config().googleapi?.client_id;
 const GOOGLE_CLIENT_SECRET = functions.config().googleapi?.client_secret;
 const GOOGLE_REDIRECT_URI = functions.config().googleapi?.redirect_uri;
@@ -53,7 +54,8 @@ const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
 ) : null;
 
 // --- MIDDLEWARE DI AUTENTICAZIONE ADMIN ---
-const authenticateAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+// FIX: Use aliased ExpressRequest and ExpressResponse types to avoid conflicts.
+const authenticateAdmin = async (req: ExpressRequest, res: ExpressResponse, next: NextFunction) => {
     const { authorization } = req.headers;
 
     if (!authorization || !authorization.startsWith("Bearer ")) {
@@ -78,7 +80,8 @@ const authenticateAdmin = async (req: express.Request, res: express.Response, ne
 };
 
 // --- MIDDLEWARE DI CONTROLLO CONFIGURAZIONE ---
-const checkServerConfig = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+// FIX: Use aliased ExpressRequest and ExpressResponse types to avoid conflicts.
+const checkServerConfig = (req: ExpressRequest, res: ExpressResponse, next: NextFunction) => {
     if (!oAuth2Client || !ADMIN_UID) {
         console.error("ERRORE CRITICO: La configurazione delle API di Google o l'Admin UID non sono impostate nelle Firebase Functions. Esegui `firebase functions:config:set`.");
         return res.status(503).json({ error: { message: "Il server non è configurato correttamente per gestire le richieste a Google. Contatta l'amministratore." } });
@@ -116,7 +119,8 @@ app.use(checkServerConfig);
  * Genera l'URL per il consenso OAuth2 di Google.
  * L'admin lo userà per collegare il proprio account.
  */
-app.post("/getAuthURL", authenticateAdmin, (req, res) => {
+// FIX: Use aliased ExpressResponse type to ensure correct type inference.
+app.post("/getAuthURL", authenticateAdmin, (req: ExpressRequest, res: ExpressResponse) => {
     const adminUid = res.locals.user.uid;
     const authUrl = oAuth2Client!.generateAuthUrl({
         access_type: "offline", // Richiede un refresh_token
@@ -134,7 +138,8 @@ app.post("/getAuthURL", authenticateAdmin, (req, res) => {
  * Riceve il codice di autorizzazione, lo scambia con i token e salva
  * il refresh_token nel documento delle impostazioni dell'admin.
  */
-app.get("/oauthcallback", async (req, res) => {
+// FIX: Use aliased ExpressRequest and ExpressResponse types for route handlers.
+app.get("/oauthcallback", async (req: ExpressRequest, res: ExpressResponse) => {
     const { code, state } = req.query;
     const adminUid = state as string;
 
@@ -180,7 +185,8 @@ app.get("/oauthcallback", async (req, res) => {
 /**
  * Controlla se l'admin ha un refresh_token valido salvato.
  */
-app.post("/checkTokenStatus", authenticateAdmin, async (req, res) => {
+// FIX: Use aliased ExpressRequest and ExpressResponse types for route handlers.
+app.post("/checkTokenStatus", authenticateAdmin, async (req: ExpressRequest, res: ExpressResponse) => {
     try {
         const settingsDoc = await getAdminSettingsRef(res.locals.user.uid).get();
         const settings = settingsDoc.data();
@@ -199,7 +205,8 @@ app.post("/checkTokenStatus", authenticateAdmin, async (req, res) => {
 /**
  * Disconnette l'account Google dell'admin rimuovendo il refresh_token.
  */
-app.post("/disconnectGoogleAccount", authenticateAdmin, async (req, res) => {
+// FIX: Use aliased ExpressRequest and ExpressResponse types for route handlers.
+app.post("/disconnectGoogleAccount", authenticateAdmin, async (req: ExpressRequest, res: ExpressResponse) => {
     try {
         await getAdminSettingsRef(res.locals.user.uid).update({
             googleRefreshToken: admin.firestore.FieldValue.delete(),
@@ -216,7 +223,8 @@ app.post("/disconnectGoogleAccount", authenticateAdmin, async (req, res) => {
 /**
  * Elenca i calendari Google dell'admin.
  */
-app.post("/listGoogleCalendars", authenticateAdmin, async (req, res) => {
+// FIX: Use aliased ExpressRequest and ExpressResponse types for route handlers.
+app.post("/listGoogleCalendars", authenticateAdmin, async (req: ExpressRequest, res: ExpressResponse) => {
     try {
         const hasCredentials = await setGoogleAuthCredentials(res.locals.user.uid);
         if (!hasCredentials) {
@@ -239,7 +247,8 @@ app.post("/listGoogleCalendars", authenticateAdmin, async (req, res) => {
 /**
  * Recupera gli slot occupati (free/busy) dai calendari dell'admin.
  */
-app.post("/getBusySlotsOnBehalfOfAdmin", async (req, res) => {
+// FIX: Use aliased ExpressRequest and ExpressResponse types for route handlers.
+app.post("/getBusySlotsOnBehalfOfAdmin", async (req: ExpressRequest, res: ExpressResponse) => {
     const { timeMin, timeMax, calendarIds } = req.body.data;
     const adminUid = ADMIN_UID;
     
@@ -286,7 +295,8 @@ app.post("/getBusySlotsOnBehalfOfAdmin", async (req, res) => {
 /**
  * Crea un evento nel calendario dell'admin.
  */
-app.post("/createEventOnBehalfOfAdmin", async (req, res) => {
+// FIX: Use aliased ExpressRequest and ExpressResponse types for route handlers.
+app.post("/createEventOnBehalfOfAdmin", async (req: ExpressRequest, res: ExpressResponse) => {
     const eventData = req.body.data;
     const adminUid = ADMIN_UID;
 
@@ -340,4 +350,5 @@ app.post("/createEventOnBehalfOfAdmin", async (req, res) => {
 
 
 // Esporta l'app Express come una singola Cloud Function.
+// FIX: Use functions.https.onRequest to correctly wrap the Express app.
 export const api = functions.https.onRequest(app);
