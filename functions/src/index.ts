@@ -15,6 +15,13 @@ initializeApp();
 const db = getFirestore();
 const app = express();
 
+// ** FIX CRITICO **
+// Carica la configurazione delle funzioni. Questo è il modo corretto per leggere
+// le variabili impostate con `firebase functions:config:set`.
+// L'uso di `process.env` era errato e causava il crash della funzione.
+const functionsConfig = functions.config();
+
+
 // FIX: Sostituita la policy CORS restrittiva con una più flessibile per lo sviluppo.
 // La nuova configurazione permette dinamicamente all'origine della richiesta in arrivo
 // di accedere, risolvendo gli errori CORS riscontrati durante il deploy su ambienti diversi.
@@ -23,9 +30,9 @@ app.use(cors({origin: true}));
 app.use(express.json());
 
 const getOauth2Client = () => {
-  const GOOGLEAPI_CLIENT_ID = process.env.GOOGLEAPI_CLIENT_ID;
-  const GOOGLEAPI_CLIENT_SECRET = process.env.GOOGLEAPI_CLIENT_SECRET;
-  const GOOGLEAPI_REDIRECT_URI = process.env.GOOGLEAPI_REDIRECT_URI;
+  const GOOGLEAPI_CLIENT_ID = functionsConfig.googleapi?.client_id;
+  const GOOGLEAPI_CLIENT_SECRET = functionsConfig.googleapi?.client_secret;
+  const GOOGLEAPI_REDIRECT_URI = functionsConfig.googleapi?.redirect_uri;
 
   if (
     !GOOGLEAPI_CLIENT_ID ||
@@ -47,7 +54,7 @@ const getOauth2Client = () => {
 };
 
 const getAdminUid = () => {
-  const ADMIN_UID = process.env.ADMIN_UID;
+  const ADMIN_UID = functionsConfig.admin?.uid;
   if (!ADMIN_UID) {
     console.error("ADMIN_UID non è configurato nelle variabili d'ambiente!");
     throw new functions.https.HttpsError(

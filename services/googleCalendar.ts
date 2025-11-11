@@ -1,6 +1,7 @@
 import { auth, functions } from './firebase';
 import axios from 'axios';
 import { type GoogleCalendar, type Booking, type CalendarEvent } from '../types';
+import { FIREBASE_CONFIG } from '../constants';
 
 // =====================================================================================
 // NUOVA ARCHITETTURA:
@@ -10,8 +11,8 @@ import { type GoogleCalendar, type Booking, type CalendarEvent } from '../types'
 // =====================================================================================
 
 // L'URL di base della nostra nuova funzione API.
-// Assicurati che il nome del progetto e la regione siano corretti.
-const API_BASE_URL = "https://us-central1-gestionale-prenotazioni-lezio.cloudfunctions.net/api";
+// Lo costruiamo dinamicamente usando il Project ID per evitare errori.
+const API_BASE_URL = `https://us-central1-${FIREBASE_CONFIG.projectId}.cloudfunctions.net/api`;
 
 
 /**
