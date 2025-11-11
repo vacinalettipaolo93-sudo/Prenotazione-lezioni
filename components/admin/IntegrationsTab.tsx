@@ -75,11 +75,35 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     };
     
     const handleConnect = async () => {
+        // Apri il popup immediatamente al click per evitare i blocchi del browser.
+        const authPopup = window.open('about:blank', 'google-auth', 'width=600,height=700');
+        if (!authPopup) {
+            setStatus(prev => ({ ...prev, isLoading: false, error: 'Popup bloccato. Abilita i popup per questo sito e riprova.' }));
+            return;
+        }
+    
         try {
-            await GCal.connectGoogleAccount();
-            checkStatus();
+            // Recupera l'URL di autenticazione dal nostro backend.
+            const url = await GCal.getGoogleAuthUrl();
+            
+            // Indirizza il popup alla pagina di login di Google.
+            authPopup.location.href = url;
+    
+            // Controlla periodicamente se il popup è stato chiuso dall'utente.
+            const timer = setInterval(() => {
+                if (authPopup.closed) {
+                    clearInterval(timer);
+                    // Una volta chiuso, aggiorna lo stato della connessione.
+                    checkStatus();
+                }
+            }, 500);
+    
         } catch (e: any) {
-            setStatus(prev => ({ ...prev, error: e.message }));
+            // Se qualcosa va storto, mostra un errore e chiudi il popup.
+            setStatus(prev => ({ ...prev, isLoading: false, error: e.message }));
+            if (!authPopup.closed) {
+                authPopup.close();
+            }
         }
     };
     

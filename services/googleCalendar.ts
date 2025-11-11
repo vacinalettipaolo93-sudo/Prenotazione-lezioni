@@ -76,24 +76,17 @@ export const checkGoogleConnection = async (): Promise<{ isConnected: boolean; e
     return result.data;
 };
 
-export const connectGoogleAccount = (): Promise<void> => {
-    return new Promise(async (resolve, reject) => {
-        try {
-            const result = await callAdminApi('getAuthURL');
-            const { url } = result.data;
-            const authPopup = window.open(url, "google-auth", "width=600,height=700");
-
-            const timer = setInterval(() => {
-                if (authPopup?.closed) {
-                    clearInterval(timer);
-                    resolve();
-                }
-            }, 500);
-        } catch (e: any) {
-            console.error("Impossibile ottenere l'URL di autenticazione", e);
-            reject(e);
-        }
-    });
+/**
+ * Recupera l'URL di autorizzazione OAuth2 di Google dal backend.
+ * Questo URL verrà utilizzato per avviare il flusso di accesso di Google in un popup.
+ * @returns {Promise<string>} L'URL di autorizzazione.
+ */
+export const getGoogleAuthUrl = async (): Promise<string> => {
+    const result = await callAdminApi('getAuthURL');
+    if (!result.data?.url) {
+        throw new Error("URL di autenticazione non ricevuto dal server.");
+    }
+    return result.data.url;
 };
 
 export const disconnectGoogleAccount = async (): Promise<{ success: boolean }> => {

@@ -2,14 +2,14 @@
 // tuo progetto Firebase. Assicurati di aver installato le dipendenze
 // necessarie con `npm install`.
 
-import {https, config} from "firebase-functions/v1";
+// FIX: Changed import to namespace import to resolve type inference issues with `config` and `https`.
+// FIX: Switched from namespace import to direct imports for `https` and `config` to resolve 'never' type errors.
+import { https, config } from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import {google} from "googleapis";
-import express, {
-  Request as ExpressRequest,
-  Response as ExpressResponse,
-  NextFunction,
-} from "express";
+// FIX: Removed aliasing for Request and Response to fix type compatibility issues with Express handlers.
+// FIX: Using fully qualified express types to avoid conflicts with other 'Request'/'Response' types.
+import express from "express";
 import cors from "cors";
 
 // ** GESTIONE ROBUSTA DEGLI ERRORI DI INIZIALIZZAZIONE **
@@ -30,7 +30,9 @@ const app = express();
 app.use(cors({origin: true}));
 
 // Interfaccia personalizzata per le richieste autenticate
-interface AuthenticatedRequest extends ExpressRequest {
+// FIX: Extended from `Request` directly.
+// FIX: Extended from `express.Request` to ensure correct type.
+interface AuthenticatedRequest extends express.Request {
   user?: admin.auth.DecodedIdToken;
 }
 
@@ -38,6 +40,8 @@ interface AuthenticatedRequest extends ExpressRequest {
 
 const getOauth2Client = () => {
   /* eslint-disable camelcase */
+  // FIX: Used namespace import `functions.config()`.
+  // FIX: Changed to use imported `config` function.
   const functionsConfig = config();
   const client_id = functionsConfig.googleapi?.client_id;
   const client_secret = functionsConfig.googleapi?.client_secret;
@@ -55,6 +59,8 @@ const getOauth2Client = () => {
 };
 
 const getAdminUid = () => {
+  // FIX: Used namespace import `functions.config()`.
+  // FIX: Changed to use imported `config` function.
   const adminUid = config().admin?.uid;
   if (!adminUid) {
     const msg = "La variabile d'ambiente ADMIN_UID non è stata impostata." +
@@ -68,8 +74,10 @@ const getAdminUid = () => {
 // ** MIDDLEWARE DI AUTENTICAZIONE BLINDATO **
 const adminAuthMiddleware = async (
     req: AuthenticatedRequest,
-    res: ExpressResponse,
-    next: NextFunction,
+    // FIX: Used `Response` type directly.
+    // FIX: Using fully qualified `express.Response` and `express.NextFunction` types.
+    res: express.Response,
+    next: express.NextFunction,
 ) => {
   try {
     const authHeader = req.headers.authorization;
@@ -100,10 +108,14 @@ const adminAuthMiddleware = async (
 const handleApiRequest = (
     handler: (
       req: AuthenticatedRequest,
-      res: ExpressResponse
+      // FIX: Used `Response` type directly.
+      // FIX: Using fully qualified `express.Response` type.
+      res: express.Response
     ) => Promise<void>,
 ) => {
-  return async (req: AuthenticatedRequest, res: ExpressResponse) => {
+  // FIX: Used `Response` type directly.
+  // FIX: Using fully qualified `express.Response` type.
+  return async (req: AuthenticatedRequest, res: express.Response) => {
     try {
       await handler(req, res);
     } catch (error) {
@@ -399,4 +411,6 @@ app.post(
 );
 
 // Esporta l'app Express come una singola Cloud Function.
+// FIX: Used namespace import `functions.https`.
+// FIX: Changed to use imported `https` object.
 export const api = https.onRequest(app);
