@@ -22,13 +22,19 @@ const app = express();
 const functionsConfig = functions.config();
 
 
-// ** FIX CORS **
-// Configurazione esplicita di CORS per accettare richieste solo dal dominio Vercel.
-// Questo è un fix più robusto rispetto a `cors()` generico e risolve i problemi
-// di "preflight request" che causano l'errore di rete.
+// ** FIX CORS DEFINITIVO **
+// Configurazione CORS esplicita e completa.
+// - origin: Accetta richieste solo dal dominio Vercel.
+// - methods: Specifica i metodi HTTP permessi.
+// - allowedHeaders: LA PARTE CRUCIALE. Autorizza esplicitamente l'invio
+//   dell'header 'Authorization', che era la causa del fallimento del preflight.
+// - optionsSuccessStatus: Risponde con 204 (No Content) alle richieste OPTIONS,
+//   come da standard.
 const corsOptions = {
   origin: "https://gestionale-prenotazioni-lezioni.vercel.app",
-  optionsSuccessStatus: 200,
+  methods: ["POST", "GET", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 204,
 };
 app.use(cors(corsOptions));
 
