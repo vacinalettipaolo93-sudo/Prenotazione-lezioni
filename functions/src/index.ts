@@ -1,11 +1,5 @@
 
 
-
-
-
-
-
-
 // Questo file deve essere collocato nella cartella 'functions/src' del
 // tuo progetto Firebase. Assicurati di aver installato le dipendenze
 // necessarie con `npm install`.
@@ -15,9 +9,8 @@ import {initializeApp} from "firebase-admin/app";
 import {getFirestore, Firestore} from "firebase-admin/firestore";
 import {getAuth} from "firebase-admin/auth";
 import {google} from "googleapis";
-// FIX: Changed express import to a default import to allow for namespaced type access (e.g., `express.Request`), which robustly resolves type conflicts with firebase-functions.
-// FIX: Use a default import for express to enable namespaced types (express.Request, express.Response) and avoid conflicts.
-import express from "express";
+// FIX: Aliased express types to prevent conflicts with firebase-functions types.
+import express, {Request as ExpressRequest, Response as ExpressResponse, NextFunction as ExpressNextFunction} from "express";
 import cors from "cors";
 
 // ** GESTIONE ROBUSTA DEGLI ERRORI DI INIZIALIZZAZIONE **
@@ -34,8 +27,7 @@ try {
   console.error("ERRORE CRITICO DI INIZIALIZZAZIONE FIREBASE:", e);
 }
 
-// FIX: Explicitly typing `app` with `express.Express` to ensure correct type inference for Express methods and middleware.
-const app: express.Express = express();
+const app = express();
 
 // ** FIX CORS DEFINITIVO E ROBUSTO (v2) **
 // Abbiamo reso la configurazione CORS più robusta per garantire
@@ -87,11 +79,10 @@ const getAdminUid = () => {
 };
 
 // ** MIDDLEWARE DI AUTENTICAZIONE BLINDATO **
-// FIX: Updated request, response, and next function types to use the namespaced `express` types, ensuring correctness and resolving compiler errors.
 const adminAuthMiddleware = async (
-  req: express.Request,
-  res: express.Response,
-  next: express.NextFunction
+  req: ExpressRequest,
+  res: ExpressResponse,
+  next: ExpressNextFunction
 ) => {
   try {
     const authHeader = req.headers.authorization;
@@ -119,11 +110,10 @@ const adminAuthMiddleware = async (
 };
 
 // ** WRAPPER PER GLI ENDPOINT **
-// FIX: Explicitly typed handler arguments with namespaced `express` types to fix type resolution issues.
 const handleApiRequest = (
-  handler: (req: express.Request, res: express.Response) => Promise<void>
+  handler: (req: ExpressRequest, res: ExpressResponse) => Promise<void>
 ) => {
-  return async (req: express.Request, res: express.Response) => {
+  return async (req: ExpressRequest, res: ExpressResponse) => {
     try {
       await handler(req, res);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -392,6 +382,4 @@ app.post(
 );
 
 // Esporta l'app Express come una singola Cloud Function.
-// FIX: Cast app to `any` to resolve a type error where the Express app is not assignable to the expected function signature.
-// This is a common workaround for firebase-functions type definitions not explicitly including an overload for Express apps.
-export const api = functions.https.onRequest(app as any);
+export const api = functions.https.onRequest(app);

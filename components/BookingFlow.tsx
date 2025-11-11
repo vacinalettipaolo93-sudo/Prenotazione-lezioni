@@ -2,16 +2,15 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { collection, addDoc, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { db, getAppSettings } from '../services/firebase';
 import * as GCal from '../services/googleCalendar';
-import { type Booking, type AppSettings, type AICompletions } from '../types';
+import { type Booking, type AppSettings } from '../types';
 import Spinner from './Spinner';
 import { ADMIN_UID } from '../constants';
 
 interface BookingFlowProps {
   sport: string;
-  prefilled: AICompletions | null;
 }
 
-const BookingFlow: React.FC<BookingFlowProps> = ({ sport, prefilled }) => {
+const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -36,7 +35,6 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport, prefilled }) => {
     const [message, setMessage] = useState('');
 
     const [bookingState, setBookingState] = useState<'idle' | 'booking' | 'success' | 'error'>('idle');
-    const [aiNotice, setAiNotice] = useState<string | null>(null);
     
     const selectedService = useMemo(() => {
         return settings?.services?.find(s => s.name === sport);
@@ -65,48 +63,6 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport, prefilled }) => {
         };
         initialize();
     }, []);
-
-    // Handle prefilled data from AI
-    useEffect(() => {
-        if (prefilled && settings) {
-            let nextStep = 1;
-            const notices: string[] = [];
-            
-            if (prefilled.date) {
-                // Adjust for timezone differences by parsing date as UTC
-                const dateParts = prefilled.date.split('-').map(Number);
-                const parsedDate = new Date(Date.UTC(dateParts[0], dateParts[1] - 1, dateParts[2]));
-
-                if (!isNaN(parsedDate.getTime())) {
-                    setSelectedDate(parsedDate);
-                    setCurrentMonth(parsedDate);
-                    nextStep = 2;
-                    notices.push("la data");
-                }
-            }
-
-            if (prefilled.location) {
-                const foundLocation = settings.locations?.find(loc => loc.name.toLowerCase() === prefilled.location?.toLowerCase());
-                if (foundLocation) {
-                    setSelectedLocationId(foundLocation.id);
-                    if (nextStep === 2) {
-                        nextStep = 3;
-                    }
-                     if (notices.indexOf("la sede") === -1) {
-                        notices.push("la sede");
-                    }
-                }
-            }
-
-            if (notices.length > 0) {
-                setAiNotice(`Ho pre-compilato ${notices.join(' e ')} per te!`);
-                setTimeout(() => setAiNotice(null), 5000); // Nascondi dopo 5 secondi
-            }
-
-            setStep(nextStep);
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [prefilled, settings]);
 
     // Set initial defaults for lesson/duration once sport settings are available
     useEffect(() => {
@@ -526,12 +482,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport, prefilled }) => {
     }
 
     return (
-        <div className="bg-gray-800 rounded-2xl shadow-xl max-w-4xl mx-auto p-8 border border-gray-700 relative">
-            {aiNotice && (
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-auto bg-emerald-600 text-white text-sm font-semibold py-2 px-4 rounded-full shadow-lg whitespace-nowrap z-10">
-                    {aiNotice}
-                </div>
-            )}
+        <div className="bg-gray-800 rounded-2xl shadow-xl max-w-4xl mx-auto p-8 border border-gray-700">
             <div className="text-center mb-8">
                 <p className="text-sm font-semibold text-emerald-400 tracking-wider">PASSO {stepInfo[step].progress}</p>
                 <h1 className="text-3xl font-bold text-white mt-2">{stepInfo[step].title}</h1>
