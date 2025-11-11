@@ -1,29 +1,25 @@
-
-
 // Questo file deve essere collocato nella cartella 'functions/src' del
 // tuo progetto Firebase. Assicurati di aver installato le dipendenze
 // necessarie con `npm install`.
 
 import * as functions from "firebase-functions/v1";
-import {initializeApp} from "firebase-admin/app";
-import {getFirestore, Firestore} from "firebase-admin/firestore";
-import {getAuth} from "firebase-admin/auth";
+// FIX: Use namespace import for firebase-admin to prevent module resolution issues.
+import * as admin from "firebase-admin";
 import {google} from "googleapis";
-// FIX: Consolidate express imports to resolve no-duplicates lint error.
-// FIX: Use type aliases for express Request, Response, and NextFunction to avoid conflicts with global types.
-// FIX: Separated value and type imports for express to resolve module resolution errors.
-import express from "express";
-import type {
-  Request as ExpressRequest,
-  Response as ExpressResponse,
-  NextFunction as ExpressNextFunction,
+// FIX: Consolidated express imports and used direct types to resolve compilation errors.
+// FIX: Using direct Request and Response types from express.
+import express, {
+  Request,
+  Response,
+  NextFunction,
 } from "express";
+import cors from "cors"; // Importa la libreria cors
 
 // ** GESTIONE ROBUSTA DEGLI ERRORI DI INIZIALIZZAZIONE **
-let db: Firestore;
+let db: admin.firestore.Firestore;
 try {
-  initializeApp();
-  db = getFirestore();
+  admin.initializeApp();
+  db = admin.firestore();
 } catch (e: any) {
   console.error("ERRORE CRITICO DI INIZIALIZZAZIONE FIREBASE:", e);
   // In caso di errore critico, le funzioni non dovrebbero nemmeno provare a
@@ -32,42 +28,26 @@ try {
 
 const app = express();
 
-// ** CONFIGURAZIONE CORS MANUALE E ROBUSTA **
-// FIX: Added explicit types to middleware arguments to resolve type inference errors.
-app.use((req: ExpressRequest, res: ExpressResponse, next: ExpressNextFunction) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin as string);
-  }
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET, POST, PUT, DELETE, OPTIONS",
-  );
-  res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
-  );
-
-  if (req.method === "OPTIONS") {
-    res.sendStatus(204);
-  } else {
-    next();
-  }
-});
+// ** CONFIGURAZIONE CORS ROBUSTA TRAMITE LIBRERIA **
+// Sostituisce l'implementazione manuale per una maggiore affidabilità.
+// `origin: true` riflette l'origine della richiesta, una configurazione
+// flessibile e sicura per la maggior parte dei casi d'uso.
+app.use(cors({origin: true}));
 
 // ** FUNZIONI HELPER CON GESTIONE ERRORI INTEGRATA **
 
-// Legge le variabili d'ambiente invece del deprecato functions.config()
 const getOauth2Client = () => {
   /* eslint-disable camelcase */
-  const client_id = process.env.GOOGLEAPI_CLIENT_ID;
-  const client_secret = process.env.GOOGLEAPI_CLIENT_SECRET;
-  const redirect_uri = process.env.GOOGLEAPI_REDIRECT_URI;
+  // Legge la configurazione delle funzioni impostata tramite CLI
+  const config = functions.config();
+  const client_id = config.googleapi?.client_id;
+  const client_secret = config.googleapi?.client_secret;
+  const redirect_uri = config.googleapi?.redirect_uri;
 
   if (!client_id || !client_secret || !redirect_uri) {
     const msg = "Una o più variabili d'ambiente Google API non sono impostate";
-    console.error(msg + " (CLIENT_ID, CLIENT_SECRET, REDIRECT_URI)");
+    console.error(msg +
+        ". Esegui `firebase functions:config:set googleapi.client_id=...`");
     throw new Error("Configurazione del server incompleta.");
   }
 
@@ -76,9 +56,10 @@ const getOauth2Client = () => {
 };
 
 const getAdminUid = () => {
-  const adminUid = process.env.ADMIN_UID;
+  const adminUid = functions.config().admin?.uid;
   if (!adminUid) {
-    const msg = "La variabile d'ambiente ADMIN_UID non è stata impostata.";
+    const msg = "La variabile d'ambiente ADMIN_UID non è stata impostata." +
+    " Esegui `firebase functions:config:set admin.uid=...`";
     console.error(msg);
     throw new Error("Configurazione del server incompleta.");
   }
@@ -86,10 +67,11 @@ const getAdminUid = () => {
 };
 
 // ** MIDDLEWARE DI AUTENTICAZIONE BLINDATO **
+// FIX: Replaced aliased Express types with direct imports.
 const adminAuthMiddleware = async (
-    req: ExpressRequest,
-    res: ExpressResponse,
-    next: ExpressNextFunction,
+    req: Request,
+    res: Response,
+    next: NextFunction,
 ) => {
   try {
     const authHeader = req.headers.authorization;
@@ -99,7 +81,7 @@ const adminAuthMiddleware = async (
     }
     const adminUid = getAdminUid();
     const idToken = authHeader.split("Bearer ")[1];
-    const decodedToken = await getAuth().verifyIdToken(idToken);
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
     if (decodedToken.uid !== adminUid) {
       const err = "Permesso negato: l'utente non è un amministratore.";
       return res.status(403).json({error: {message: err}});
@@ -116,10 +98,12 @@ const adminAuthMiddleware = async (
 };
 
 // ** WRAPPER PER GLI ENDPOINT **
+// FIX: Replaced aliased Express types with direct imports.
 const handleApiRequest = (
-    handler: (req: ExpressRequest, res: ExpressResponse) => Promise<void>,
+    handler: (req: Request, res: Response) => Promise<void>,
 ) => {
-  return async (req: ExpressRequest, res: ExpressResponse) => {
+  // FIX: Replaced aliased Express types with direct imports.
+  return async (req: Request, res: Response) => {
     try {
       await handler(req, res);
     } catch (error: any) {
@@ -166,15 +150,17 @@ app.get(
         await tokenDocRef.set({refresh_token: tokens.refresh_token});
       }
       const htmlResponse = `
-        <html><body style="font-family: sans-serif; text-align: center;
-        background-color: #1a202c; color: #e2e8f0; display: flex;
-        justify-content: center; align-items: center; height: 100vh;">
-        <div>
-          <h1 style="color: #48bb78;">Autorizzazione completata!</h1>
-          <p>Questa finestra si chiuderà a breve.</p>
-          <script>setTimeout(() => window.close(), 2000);</script>
-        </div>
-        </body></html>`;
+        <html>
+          <body style="font-family: sans-serif; text-align: center;
+            background-color: #1a202c; color: #e2e8f0; display: flex;
+            justify-content: center; align-items: center; height: 100vh;">
+            <div>
+              <h1 style="color: #48bb78;">Autorizzazione completata!</h1>
+              <p>Questa finestra si chiuderà a breve.</p>
+              <script>setTimeout(() => window.close(), 2000);</script>
+            </div>
+          </body>
+        </html>`;
       res.send(htmlResponse);
     }),
 );
@@ -331,23 +317,23 @@ app.post(
 
       oauth2Client.setCredentials({refresh_token: tokens.refresh_token});
       const calendar = google.calendar({version: "v3", auth: oauth2Client});
-      const eventDescription = `
-        <b>Dettagli Cliente:</b>
-        - Nome: ${data.clientName}
-        - Email: ${data.clientEmail}
-        - Telefono: ${data.clientPhone}
 
-        <b>Dettagli Lezione:</b>
-        - Sport: ${data.sport}
-        - Tipo: ${data.lessonType}
-        - Durata: ${data.duration} min
+      const descriptionParts = [
+        "<b>Dettagli Cliente:</b>",
+        `- Nome: ${data.clientName}`,
+        `- Email: ${data.clientEmail}`,
+        `- Telefono: ${data.clientPhone}`,
+        "<br><br>",
+        "<b>Dettagli Lezione:</b>",
+        `- Sport: ${data.sport}`,
+        `- Tipo: ${data.lessonType}`,
+        `- Durata: ${data.duration} min`,
+        "<br><br>",
+        "<b>Note:</b>",
+        `<pre>${data.message || "Nessuna nota."}</pre>`,
+      ];
+      const eventDescription = descriptionParts.join("<br>");
 
-        <b>Note:</b>
-        <pre>${data.message || "Nessuna nota."}</pre>
-      `
-          .replace(/(\r\n|\n|\r)/gm, "")
-          .replace(/\s+/g, " ")
-          .trim();
       const event = {
         summary: `Lezione di ${data.sport} - ${data.clientName}`,
         location: data.location,
