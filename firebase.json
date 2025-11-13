@@ -9,8 +9,8 @@
       "*.env*"
     ],
     "predeploy": [
-      "npm --prefix \"$RESOURCE_DIR\" run lint",
-      "npm --prefix \"$RESOURCE_DIR\" run build"
+      "npm --prefix \"$RESOURCE_DIR\" install",
+      "cd \"$RESOURCE_DIR\" && npm run compile"
     ]
   },
   "hosting": {
@@ -19,6 +19,9 @@
       "firebase.json",
       "**/.*",
       "**/node_modules/**"
+    ],
+    "predeploy": [
+      "npm install && npm run build"
     ]
   },
   "firestore": {

@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// Regole per Firebase Storage
+service firebase.storage {
+  // Il "bucket" è il contenitore principale dei tuoi file.
+  match /b/{bucket}/o {
+
+    // Regola specifica per le foto profilo dell'admin.
+    // Il percorso è costruito usando l'UID dell'admin.
+    match /profile_photos/{adminUid}/{allPaths=**} {
+
+      // Chiunque può leggere (vedere) le foto.
+      // Questo è necessario per mostrare la foto sulla pagina pubblica.
+      allow read;
+
+      // Solo un utente autenticato (l'admin) può scrivere.
+      allow write: if request.auth != null && request.auth.uid == adminUid;
+    }
+  }
+}

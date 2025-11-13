@@ -1,0 +1,25 @@
+# Dipendenze
+node_modules
+functions/node_modules
+
+# File compilati e di output
+dist
+functions/lib
+
+# Log e file di cache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.firebase/
+
+# File di configurazione locale e segreti
+.env
+.env.local
+.env.*.local
+functions/.env
+functions/.env.local
+functions/.env.*
+
+# File specifici del sistema operativo
+.DS_Store
+Thumbs.db
