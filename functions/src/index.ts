@@ -8,8 +8,12 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 // FIX: Switched to require-style import for Express to resolve type conflicts
+<<<<<<< HEAD
 // that were causing compilation errors throughout the file. The Request,
 // Response,
+=======
+// that were causing compilation errors throughout the file. The Request, Response,
+>>>>>>> d5aa86e6e357ce528d9ded5228f936ee252e4320
 // and NextFunction types will now be accessed through the `express` namespace
 // (e.g., `express.Request`).
 import express = require("express");
@@ -44,8 +48,12 @@ const corsOptions: cors.CorsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+<<<<<<< HEAD
 // Interfaccia per la configurazione delle funzioni per una maggiore
 // sicurezza dei tipi
+=======
+// Interfaccia per la configurazione delle funzioni per una maggiore sicurezza dei tipi
+>>>>>>> d5aa86e6e357ce528d9ded5228f936ee252e4320
 interface FunctionsConfig {
   googleapi?: {
     client_id?: string;
@@ -57,8 +65,12 @@ interface FunctionsConfig {
   };
 }
 
+<<<<<<< HEAD
 // FIX: Use type assertion for functions.config() due to broken type
 // definitions.
+=======
+// FIX: Use type assertion for functions.config() due to broken type definitions.
+>>>>>>> d5aa86e6e357ce528d9ded5228f936ee252e4320
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const functionsConfig: FunctionsConfig = (functions as any).config();
 const GOOGLE_CLIENT_ID = functionsConfig.googleapi?.client_id;
@@ -150,8 +162,12 @@ app.post(
   (req: express.Request, res: express.Response) => {
     // FIX TS7030 & TS2769: Add explicit check to satisfy TypeScript compiler
     if (!oAuth2Client) {
+<<<<<<< HEAD
       return res.status(503).json({error:
           {message: "Server not configured."}});
+=======
+        return res.status(503).json({error: {message: "Server not configured."}});
+>>>>>>> d5aa86e6e357ce528d9ded5228f936ee252e4320
     }
     const adminUid = res.locals.user.uid;
     const authUrl = oAuth2Client.generateAuthUrl({
@@ -260,8 +276,12 @@ app.post(
   async (req: express.Request, res: express.Response) => {
     // FIX TS2769: Add explicit check to satisfy TypeScript compiler
     if (!oAuth2Client) {
+<<<<<<< HEAD
       return res.status(503).json({error:
           {message: "Server not configured."}});
+=======
+        return res.status(503).json({error: {message: "Server not configured."}});
+>>>>>>> d5aa86e6e357ce528d9ded5228f936ee252e4320
     }
     try {
       const hasCreds = await setGoogleAuthCredentials(res.locals.user.uid);
@@ -293,8 +313,12 @@ app.post(
     }
     // FIX TS2769: Add explicit check to satisfy TypeScript compiler
     if (!oAuth2Client) {
+<<<<<<< HEAD
       return res.status(503).json({error:
           {message: "Server not configured."}});
+=======
+        return res.status(503).json({error: {message: "Server not configured."}});
+>>>>>>> d5aa86e6e357ce528d9ded5228f936ee252e4320
     }
 
     try {

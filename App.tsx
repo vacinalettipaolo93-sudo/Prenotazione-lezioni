@@ -6,7 +6,7 @@ import Spinner from './components/Spinner';
 import AdminDashboard from './components/AdminDashboard';
 import BookingFlow from './components/BookingFlow';
 import { FIREBASE_CONFIG, GOOGLE_API_CONFIG, ADMIN_UID } from './constants';
-import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext';
+// import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext'; // Rimosso
 
 type View = 'home' | 'booking' | 'login' | 'admin';
 
@@ -44,10 +44,11 @@ const App: React.FC = () => {
     );
   }
 
+  // Rimosso GoogleCalendarProvider
   return (
-      <GoogleCalendarProvider user={user}>
+      <>
           {user ? <AdminDashboard user={user} /> : <PublicApp />}
-      </GoogleCalendarProvider>
+      </>
   );
 };
 

@@ -5,7 +5,6 @@ import * as GCal from '../services/googleCalendar';
 import { type Booking, type AppSettings } from '../types';
 import Spinner from './Spinner';
 import { ADMIN_UID } from '../constants';
-import { useGoogleCalendar } from '../contexts/GoogleCalendarContext';
 
 interface BookingFlowProps {
   sport: string;
@@ -16,7 +15,6 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [busySlots, setBusySlots] = useState<Date[]>([]);
-    const { isReady, isAuthorized, connect, error: authError } = useGoogleCalendar();
     
     // 1: Date, 2: Location, 3: Time, 4: Lesson Details, 5: Client Details
     const [step, setStep] = useState(1); 
@@ -78,7 +76,6 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
 
 
     const fetchBusySlots = useCallback(async (date: Date) => {
-        if (!isAuthorized) return;
         setLoading(true);
         const startOfDay = new Date(date);
         startOfDay.setHours(0, 0, 0, 0);
@@ -88,6 +85,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
         let allBusySlots: Date[] = [];
 
         try {
+            // Chiamata alla funzione backend per gli slot di Google Calendar
             if (settings?.selectedCalendarIds?.length) {
                 const busyIntervals = await GCal.getBusySlots(startOfDay.toISOString(), endOfDay.toISOString(), settings.selectedCalendarIds);
                 const gCalBusyTimes = busyIntervals.flatMap(interval => {
@@ -102,6 +100,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
                 allBusySlots = allBusySlots.concat(gCalBusyTimes);
             }
 
+            // Query a Firestore per le prenotazioni esistenti
             if (db) {
                 const bookingsQuery = query(
                     collection(db, "bookings"),
@@ -125,10 +124,11 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
             setBusySlots(allBusySlots);
         } catch (e) {
             console.error("Failed to fetch busy slots:", e);
+            setError("Impossibile caricare le disponibilità. Riprova tra poco.");
         } finally {
             setLoading(false);
         }
-    }, [settings?.selectedCalendarIds, isAuthorized]);
+    }, [settings?.selectedCalendarIds]);
 
     useEffect(() => {
         if(step === 3){
@@ -150,32 +150,25 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
       try {
         let gcalEventId: string | undefined = undefined;
   
-        // Se è stato configurato un calendario per questa sede e l'utente è autorizzato,
-        // crea l'evento su Google Calendar.
-        if (targetCalendarId && isAuthorized) {
-          const eventDescription = `
-  Dettagli Prenotazione:
-  - Cliente: ${clientName}
-  - Email: ${clientEmail}
-  - Telefono: ${clientPhone}
-  - Sport: ${sport}
-  - Tipo Lezione: ${lessonTypeName}
-  - Durata: ${durationValue} minuti
-  - Sede: ${locationName}
-  
-  Note aggiuntive:
-  ${message || 'Nessuna nota fornita.'}
-          `.trim();
-  
-          const gcalEvent = await GCal.createCalendarEvent({
-            summary: `Lezione di ${sport} con ${clientName}`,
-            description: eventDescription,
-            start: { dateTime: selectedSlot.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-            end: { dateTime: endTime.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-            // Aggiungiamo il cliente come partecipante, così riceverà l'invito via email.
-            attendees: [{ email: clientEmail }],
-          }, targetCalendarId);
-          gcalEventId = gcalEvent?.id;
+        // Se è stato configurato un calendario per questa sede, prova a creare l'evento
+        if (targetCalendarId) {
+            const eventData = {
+                clientName,
+                clientEmail,
+                clientPhone,
+                sport,
+                lessonType: lessonTypeName,
+                duration: durationValue,
+                location: locationName,
+                startTime: selectedSlot.toISOString(),
+                endTime: endTime.toISOString(),
+                message,
+                targetCalendarId,
+            };
+            const result = await GCal.createCalendarEvent(eventData);
+            if (result.eventCreated) {
+                gcalEventId = result.eventId || undefined;
+            }
         }
   
         // Salviamo la prenotazione su Firebase, includendo l'ID dell'evento di Google Calendar se creato.
@@ -192,8 +185,6 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
           endTime,
           message,
           targetCalendarId,
-          // Se l'evento è stato creato, la prenotazione è automaticamente confermata.
-          // Altrimenti, rimane in attesa di approvazione manuale.
           status: gcalEventId ? 'confirmed' : 'pending',
           gcalEventId,
         };
@@ -236,41 +227,16 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
     }, [selectedDate, selectedLocationId, settings?.availability]);
     
     // UI Rendering
-    if (!isReady || (loading && !settings)) {
+    if (loading && !settings) {
       return <div className="flex items-center justify-center p-10"><Spinner /> Caricamento...</div>;
     }
     
-    if (authError) {
-       return (
-          <div className="bg-gray-800 rounded-2xl shadow-xl max-w-lg mx-auto p-8 text-center border border-red-700">
-              <h2 className="text-2xl font-bold text-red-400">Errore di Connessione</h2>
-              <p className="text-gray-300 mt-4">Impossibile connettersi ai servizi Google. Controlla la console per dettagli tecnici o riprova più tardi.</p>
-              <p className="text-xs text-gray-500 mt-4 whitespace-pre-wrap">{authError}</p>
-          </div>
-       );
-    }
-
-    if (!isAuthorized) {
-        return (
-            <div className="bg-gray-800 rounded-2xl shadow-xl max-w-lg mx-auto p-8 text-center border border-gray-700">
-                <h2 className="text-3xl font-bold text-white">Vedi le disponibilità reali</h2>
-                <p className="text-gray-300 mt-4 mb-8">
-                    Per visualizzare il calendario con gli orari aggiornati in tempo reale e procedere con la prenotazione, è necessario collegare il tuo account Google.
-                </p>
-                <button 
-                    onClick={connect}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-transform transform hover:scale-105 flex items-center justify-center gap-3 w-full max-w-sm mx-auto"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    Connetti a Google Calendar
-                </button>
-            </div>
-        );
-    }
-    
-    if (error) return <div className="text-center p-10 text-red-400">{error}</div>;
+    if (error) return (
+        <div className="bg-gray-800 rounded-2xl shadow-xl max-w-lg mx-auto p-8 text-center border border-red-700">
+            <h2 className="text-2xl font-bold text-red-400">Errore</h2>
+            <p className="text-gray-300 mt-4">{error}</p>
+        </div>
+    );
 
     const handleAddToCalendar = () => {
         if (!selectedSlot) return;

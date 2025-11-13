@@ -1,6 +1,14 @@
-import React, { createContext, useState, useContext, useEffect, useCallback, ReactNode } from 'react';
-import * as GCal from '../services/googleCalendar';
-import { type AppUser } from '../types';
+import React, { createContext, useContext, ReactNode } from 'react';
+
+// ==========================================================================================
+// NOTA DELLO SVILUPPATORE:
+// Questo Context è stato deprecato e reso inattivo.
+// L'architettura precedente basata su un'autenticazione Google lato client era difettosa
+// e causava problemi di connessione e inconsistenza dei dati.
+// La nuova architettura centralizza tutta la logica di Google Calendar nelle Firebase Functions,
+// rendendo questo context globale obsoleto. I componenti ora chiamano direttamente
+// il nuovo servizio in `services/googleCalendar.ts` che a sua volta invoca le funzioni backend.
+// ==========================================================================================
 
 interface GoogleCalendarContextType {
   isReady: boolean;
@@ -10,77 +18,33 @@ interface GoogleCalendarContextType {
   disconnect: () => void;
 }
 
-const GoogleCalendarContext = createContext<GoogleCalendarContextType | undefined>(undefined);
+const stub = (): never => {
+    throw new Error("Stai usando un GoogleCalendarContext deprecato. La logica è stata spostata nelle Cloud Functions e nel servizio API `services/googleCalendar.ts`.");
+}
+
+const GoogleCalendarContext = createContext<GoogleCalendarContextType>({
+    isReady: false,
+    isAuthorized: false,
+    error: "Context deprecato",
+    connect: stub,
+    disconnect: stub,
+});
 
 interface GoogleCalendarProviderProps {
     children: ReactNode;
-    user: AppUser | null;
+    user: any; // Mantenuto per compatibilità della prop
 }
 
-export const GoogleCalendarProvider: React.FC<GoogleCalendarProviderProps> = ({ children, user }) => {
-  const [isReady, setIsReady] = useState(false);
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const updateAuthStatus = useCallback((isAuth: boolean) => {
-      setIsAuthorized(isAuth);
-  }, []);
-
-  const handleAuthError = useCallback((e: Error) => {
-      setError(e.message || "Un errore imprevisto è occorso.");
-  }, []);
-
-  useEffect(() => {
-    const initialize = async () => {
-      setError(null);
-      setIsReady(false);
-      try {
-        // Unifichiamo l'inizializzazione: sia l'admin che il cliente usano il flusso OAuth completo
-        // per permettere il login automatico e l'accesso al calendario.
-        const result = await GCal.initializeGoogleCalendar(updateAuthStatus, handleAuthError);
-        
-        if (!result.success) {
-          setError(result.error || "Errore sconosciuto durante l'inizializzazione.");
-          setIsAuthorized(false);
-        }
-      } catch (e: any) {
-        setError(e.message || "Un errore imprevisto è occorso.");
-        setIsAuthorized(false);
-      } finally {
-        setIsReady(true);
-      }
-    };
-
-    initialize();
-  }, [updateAuthStatus, handleAuthError]);
-
-  const connect = async () => {
-    setError(null);
-    try {
-      await GCal.handleAuthClick();
-      // Auth status is updated by the global callback
-    } catch (e: any) {
-      if(e.message !== "Popup di autorizzazione chiuso dall'utente.") {
-        setError(e.message || "Si è verificato un errore sconosciuto during l'autorizzazione.");
-      }
-      setIsAuthorized(false);
-    }
-  };
-
-  const disconnect = () => {
-    GCal.handleSignoutClick();
-    setIsAuthorized(false);
-    setError(null);
-  };
-
+export const GoogleCalendarProvider: React.FC<GoogleCalendarProviderProps> = ({ children }) => {
   const value = {
-    isReady,
-    isAuthorized,
-    error,
-    connect,
-    disconnect,
+    isReady: true, // Indica sempre pronto, ma...
+    isAuthorized: false, // ...non è mai autorizzato tramite questo flusso.
+    error: null,
+    connect: async () => { console.warn("Flusso di connessione deprecato chiamato."); },
+    disconnect: () => { console.warn("Flusso di disconnessione deprecato chiamato."); },
   };
 
+  // Fornisce un valore fittizio per evitare che l'app vada in crash.
   return (
     <GoogleCalendarContext.Provider value={value}>
       {children}
@@ -92,6 +56,10 @@ export const useGoogleCalendar = (): GoogleCalendarContextType => {
   const context = useContext(GoogleCalendarContext);
   if (context === undefined) {
     throw new Error("useGoogleCalendar deve essere usato all'interno di un GoogleCalendarProvider");
+  }
+  // Avvisa lo sviluppatore che sta usando un hook deprecato
+  if (context.connect === stub) {
+      console.warn("Stai usando l'hook `useGoogleCalendar` deprecato. Passa alle chiamate dirette dal servizio `services/googleCalendar.ts`.");
   }
   return context;
 };
