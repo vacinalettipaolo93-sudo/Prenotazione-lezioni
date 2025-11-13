@@ -7,8 +7,8 @@
  */
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-// FIX: Use a namespace import for Express to avoid type conflicts and resolve compilation errors.
-import * as express from "express";
+// FIX: Changed express import to the default import syntax and imported Request, Response, and NextFunction types. This resolves type errors with express request and response objects.
+import express, {Request, Response, NextFunction} from "express";
 import cors from "cors";
 import {google} from "googleapis";
 import {type DecodedIdToken} from "firebase-admin/auth";
@@ -16,22 +16,32 @@ import {type DecodedIdToken} from "firebase-admin/auth";
 // --- INIZIALIZZAZIONE ---
 admin.initializeApp();
 const db = admin.firestore();
-// FIX: Explicitly type the app instance to ensure correct type inference for `app.use`.
-const app: express.Express = express();
+// FIX: Removed explicit typing on `app` and used direct `express()` call. Type is correctly inferred.
+const app = express();
 
 
 // --- CONFIGURAZIONE ---
 
 // Configurazione CORS più restrittiva e sicura.
 const allowedOrigins = [
-    "https://gestionale-prenotazioni-lezio.web.app",
-    "https://gestionale-prenotazioni-lezio.firebaseapp.com",
-    "https://gestionale-prenotazioni-lezioni.vercel.app",
+    "https://gestionale-prenotazioni-lezio.web.app", // Dominio di produzione Firebase
+    "https://gestionale-prenotazioni-lezio.firebaseapp.com", // Altro dominio Firebase
+    "https://gestionale-prenotazioni-lezioni.vercel.app", // Dominio di produzione Vercel
 ];
+
+// Regex per autorizzare i domini di anteprima di Vercel, es:
+// https://gestionale-prenotazioni-lezioni-git-main-tuonome.vercel.app
+const vercelPreviewRegex = /^https:\/\/gestionale-prenotazioni-lezioni-.*\.vercel\.app$/;
+
 app.use(cors({
     origin: (origin, callback) => {
         // Permetti richieste senza 'origin' (es. da Postman o test server-to-server)
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (!origin) {
+            return callback(null, true);
+        }
+        
+        // Controlla se l'origine è nella lista fissa o corrisponde al pattern di Vercel
+        if (allowedOrigins.includes(origin) || vercelPreviewRegex.test(origin)) {
             callback(null, true);
         } else {
             functions.logger.warn("CORS Warning: Origin not allowed", {origin});
@@ -40,6 +50,7 @@ app.use(cors({
     },
 }));
 
+// FIX: Corrected express app type inference allows app.use to be called correctly.
 app.use(express.json());
 
 interface FunctionsConfig {
@@ -69,9 +80,10 @@ const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
 // --- MIDDLEWARE ---
 
 const authenticateAdmin = async (
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction,
+    // FIX: Use correct express types for request, response, and next function.
+    req: Request,
+    res: Response,
+    next: NextFunction,
 ) => {
     const {authorization} = req.headers;
     if (!authorization || !authorization.startsWith("Bearer ")) {
@@ -94,9 +106,10 @@ const authenticateAdmin = async (
 };
 
 const checkServerConfig = (
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction,
+    // FIX: Use correct express types for request, response, and next function.
+    req: Request,
+    res: Response,
+    next: NextFunction,
 ) => {
     if (!oAuth2Client || !ADMIN_UID) {
         console.error(
@@ -131,7 +144,8 @@ app.use(checkServerConfig);
 app.post(
     "/getAuthURL",
     authenticateAdmin,
-    (req: express.Request, res: express.Response) => {
+    // FIX: Use correct express types for request and response.
+    (req: Request, res: Response) => {
         try {
             functions.logger.info("Request received for /getAuthURL", {uid: res.locals.user.uid});
 
@@ -166,7 +180,8 @@ app.post(
 
 app.get(
     "/oauthcallback",
-    async (req: express.Request, res: express.Response) => {
+    // FIX: Use correct express types for request and response.
+    async (req: Request, res: Response) => {
         if (!oAuth2Client) {
             return res.status(503).json({error: {message: "Server not configured."}});
         }
@@ -208,7 +223,8 @@ app.get(
 app.post(
     "/checkTokenStatus",
     authenticateAdmin,
-    async (req: express.Request, res: express.Response) => {
+    // FIX: Use correct express types for request and response.
+    async (req: Request, res: Response) => {
         try {
             const settingsDoc = await getAdminSettingsRef(res.locals.user.uid).get();
             const settings = settingsDoc.data();
@@ -227,7 +243,8 @@ app.post(
 app.post(
     "/disconnectGoogleAccount",
     authenticateAdmin,
-    async (req: express.Request, res: express.Response) => {
+    // FIX: Use correct express types for request and response.
+    async (req: Request, res: Response) => {
         try {
             await getAdminSettingsRef(res.locals.user.uid).update({
                 googleRefreshToken: admin.firestore.FieldValue.delete(),
@@ -244,7 +261,8 @@ app.post(
 app.post(
     "/listGoogleCalendars",
     authenticateAdmin,
-    async (req: express.Request, res: express.Response) => {
+    // FIX: Use correct express types for request and response.
+    async (req: Request, res: Response) => {
         if (!oAuth2Client) {
             return res.status(503).json({error: {message: "Server not configured."}});
         }
@@ -267,7 +285,8 @@ app.post(
 
 app.post(
     "/getBusySlotsOnBehalfOfAdmin",
-    async (req: express.Request, res: express.Response) => {
+    // FIX: Use correct express types for request and response.
+    async (req: Request, res: Response) => {
         const {timeMin, timeMax, calendarIds} = req.body.data;
 
         if (!ADMIN_UID || !oAuth2Client) {
@@ -306,7 +325,8 @@ app.post(
 
 app.post(
     "/createEventOnBehalfOfAdmin",
-    async (req: express.Request, res: express.Response) => {
+    // FIX: Use correct express types for request and response.
+    async (req: Request, res: Response) => {
         const {
             clientName, clientEmail, clientPhone, sport, lessonType,
             duration, location, startTime, endTime, message, targetCalendarId,
