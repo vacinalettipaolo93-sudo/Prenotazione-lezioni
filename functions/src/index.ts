@@ -1,19 +1,17 @@
 /**
  * This file serves as the entry point for Firebase Functions.
- * It exports the 'api' function, which is the new Express server implementation,
- * replacing the previous architecture of multiple individual Cloud Functions.
+ * It exports 'api', the new Express server, replacing the previous
+ * architecture of multiple individual Cloud Functions.
  *
  * All application logic is now contained within 'functions/src/index.ts'.
  */
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-// FIX: Change express import to separate default and named imports to resolve typing issues.
-import express from "express";
-import {
-  Request,
-  Response,
-  NextFunction,
-} from "express";
+// FIX: Switched to require-style import for Express to resolve type conflicts
+// that were causing compilation errors throughout the file. The Request, Response,
+// and NextFunction types will now be accessed through the `express` namespace
+// (e.g., `express.Request`).
+import express = require("express");
 import cors from "cors";
 import {google} from "googleapis";
 import {DecodedIdToken} from "firebase-admin/auth";
@@ -26,10 +24,14 @@ const app = express();
 // --- CONFIGURAZIONE ---
 const allowedOrigins = [
   "https://gestionale-prenotazioni-lezioni.vercel.app",
+  // Aggiungiamo gli URL di hosting di Firebase per il testing locale/remoto
+  `https://${process.env.GCLOUD_PROJECT}.firebaseapp.com`,
+  `https://${process.env.GCLOUD_PROJECT}.web.app`,
 ];
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
+    // Permetti richieste senza 'origin' (es. da Postman o test server-side)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -41,8 +43,21 @@ const corsOptions: cors.CorsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// NOTE: Using 'any' is a necessary workaround for Firebase's config typing.
-const functionsConfig = (functions as any).config();
+// Interfaccia per la configurazione delle funzioni per una maggiore sicurezza dei tipi
+interface FunctionsConfig {
+  googleapi?: {
+    client_id?: string;
+    client_secret?: string;
+    redirect_uri?: string;
+  };
+  admin?: {
+    uid?: string;
+  };
+}
+
+// FIX: Use type assertion for functions.config() due to broken type definitions.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const functionsConfig: FunctionsConfig = (functions as any).config();
 const GOOGLE_CLIENT_ID = functionsConfig.googleapi?.client_id;
 const GOOGLE_CLIENT_SECRET = functionsConfig.googleapi?.client_secret;
 const GOOGLE_REDIRECT_URI = functionsConfig.googleapi?.redirect_uri;
@@ -56,11 +71,10 @@ const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
 
 // --- MIDDLEWARE ---
 
-// FIX: Use `Request`, `Response`, `NextFunction` types from `express`.
 const authenticateAdmin = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
 ) => {
   const {authorization} = req.headers;
 
@@ -88,11 +102,10 @@ const authenticateAdmin = async (
   }
 };
 
-// FIX: Use `Request`, `Response`, `NextFunction` types from `express`.
 const checkServerConfig = (
-  req: Request,
-  res: Response,
-  next: NextFunction,
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
 ) => {
   if (!oAuth2Client || !ADMIN_UID) {
     console.error(
@@ -131,11 +144,10 @@ app.use(checkServerConfig);
 app.post(
   "/getAuthURL",
   authenticateAdmin,
-  // FIX: Use `Request`, `Response` types from `express`.
-  (req: Request, res: Response) => {
-    if (!oAuth2Client) { // Redundant check to satisfy linter
-      const message = "Server not configured.";
-      return res.status(503).json({error: {message}});
+  (req: express.Request, res: express.Response) => {
+    // FIX TS7030 & TS2769: Add explicit check to satisfy TypeScript compiler
+    if (!oAuth2Client) {
+        return res.status(503).json({error: {message: "Server not configured."}});
     }
     const adminUid = res.locals.user.uid;
     const authUrl = oAuth2Client.generateAuthUrl({
@@ -144,64 +156,64 @@ app.post(
       scope: ["https://www.googleapis.com/auth/calendar"],
       state: adminUid,
     });
-    res.json({data: {url: authUrl}});
+    return res.json({data: {url: authUrl}});
   },
 );
 
-// FIX: Use `Request`, `Response` types from `express`.
-app.get("/oauthcallback", async (req: Request, res: Response) => {
-  if (!oAuth2Client) { // Redundant check to satisfy linter
-    const message = "Server not configured.";
-    return res.status(503).json({error: {message}});
-  }
-  const {code, state} = req.query;
-  const adminUid = state as string;
+app.get(
+  "/oauthcallback",
+  async (req: express.Request, res: express.Response) => {
+    if (!oAuth2Client) {
+      const message = "Server not configured.";
+      return res.status(503).json({error: {message}});
+    }
+    const {code, state} = req.query;
+    const adminUid = state as string;
 
-  if (!code) {
-    return res.status(400).send("Error: Missing authorization code.");
-  }
-  if (!adminUid) {
-    return res.status(400).send("Error: Missing admin UID in state.");
-  }
-
-  try {
-    const {tokens} = await oAuth2Client.getToken(code as string);
-    const {
-      refresh_token: refreshToken,
-      access_token: accessToken,
-    } = tokens;
-
-    if (!refreshToken) {
-      throw new Error("Refresh token not received. Please re-authorize.");
+    if (!code) {
+      return res.status(400).send("Error: Missing authorization code.");
+    }
+    if (!adminUid) {
+      return res.status(400).send("Error: Missing admin UID in state.");
     }
 
-    oAuth2Client.setCredentials({access_token: accessToken});
-    const people = google.people({version: "v1", auth: oAuth2Client});
-    const profile = await people.people.get({
-      resourceName: "people/me",
-      personFields: "emailAddresses",
-    });
-    const email = profile.data.emailAddresses?.[0]?.value || null;
+    try {
+      const {tokens} = await oAuth2Client.getToken(code as string);
+      const {
+        refresh_token: refreshToken,
+        access_token: accessToken,
+      } = tokens;
 
-    await getAdminSettingsRef(adminUid).set({
-      googleRefreshToken: refreshToken,
-      googleAccountEmail: email,
-    }, {merge: true});
+      if (!refreshToken) {
+        throw new Error("Refresh token not received. Please re-authorize.");
+      }
 
-    return res.send("<script>window.close();</script>");
-  } catch (error) {
-    const err = error as Error;
-    console.error("Error during OAuth code exchange:", err);
-    const msg = `Google authentication error: ${err.message}`;
-    return res.status(500).send(msg);
-  }
-});
+      oAuth2Client.setCredentials({access_token: accessToken});
+      const people = google.people({version: "v1", auth: oAuth2Client});
+      const profile = await people.people.get({
+        resourceName: "people/me",
+        personFields: "emailAddresses",
+      });
+      const email = profile.data.emailAddresses?.[0]?.value || null;
+
+      await getAdminSettingsRef(adminUid).set({
+        googleRefreshToken: refreshToken,
+        googleAccountEmail: email,
+      }, {merge: true});
+
+      return res.send("<script>window.close();</script>");
+    } catch (error) {
+      const err = error as Error;
+      console.error("Error during OAuth code exchange:", err);
+      const msg = `Google authentication error: ${err.message}`;
+      return res.status(500).send(msg);
+    }
+  });
 
 app.post(
   "/checkTokenStatus",
   authenticateAdmin,
-  // FIX: Use `Request`, `Response` types from `express`.
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     try {
       const settingsDoc = await getAdminSettingsRef(res.locals.user.uid).get();
       const settings = settingsDoc.data();
@@ -223,8 +235,7 @@ app.post(
 app.post(
   "/disconnectGoogleAccount",
   authenticateAdmin,
-  // FIX: Use `Request`, `Response` types from `express`.
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     try {
       await getAdminSettingsRef(res.locals.user.uid).update({
         googleRefreshToken: admin.firestore.FieldValue.delete(),
@@ -242,8 +253,11 @@ app.post(
 app.post(
   "/listGoogleCalendars",
   authenticateAdmin,
-  // FIX: Use `Request`, `Response` types from `express`.
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
+    // FIX TS2769: Add explicit check to satisfy TypeScript compiler
+    if (!oAuth2Client) {
+        return res.status(503).json({error: {message: "Server not configured."}});
+    }
     try {
       const hasCreds = await setGoogleAuthCredentials(res.locals.user.uid);
       if (!hasCreds) {
@@ -265,45 +279,45 @@ app.post(
 
 app.post(
   "/getBusySlotsOnBehalfOfAdmin",
-  // FIX: Use `Request`, `Response` types from `express`.
-  async (req: Request, res: Response) => {
+  async (req: express.Request, res: express.Response) => {
     const {timeMin, timeMax, calendarIds} = req.body.data;
 
     if (!ADMIN_UID) {
       const message = "Admin UID not configured on server.";
       return res.status(500).json({error: {message}});
     }
+    // FIX TS2769: Add explicit check to satisfy TypeScript compiler
+    if (!oAuth2Client) {
+        return res.status(503).json({error: {message: "Server not configured."}});
+    }
 
     try {
       const hasCreds = await setGoogleAuthCredentials(ADMIN_UID);
       if (!hasCreds) {
-        return res.json({data: []});
+        const message = "Admin Google account not connected on server.";
+        return res.status(503).json({error: {message}});
       }
-
       const calendar = google.calendar({version: "v3", auth: oAuth2Client});
-      const response = await calendar.freebusy.query({
+      const result = await calendar.freebusy.query({
         requestBody: {
           timeMin,
           timeMax,
+          timeZone: "Europe/Rome",
           items: calendarIds.map((id: string) => ({id})),
         },
       });
 
-      const busyIntervals: {start: string, end: string}[] = [];
-      const calendarsData = response.data.calendars || {};
+      const busyIntervals = [];
+      const calendarsData = result.data.calendars || {};
       for (const calId in calendarsData) {
-        if (Object.prototype.hasOwnProperty.call(calendarsData, calId)) {
-          calendarsData[calId].busy?.forEach((interval) => {
-            if (interval.start && interval.end) {
-              busyIntervals.push({start: interval.start, end: interval.end});
-            }
-          });
+        if (calendarsData[calId].busy) {
+          busyIntervals.push(...calendarsData[calId].busy);
         }
       }
       return res.json({data: busyIntervals});
     } catch (error) {
-      console.error("Error fetching busy slots:", error);
-      const message = "Could not retrieve availability.";
+      console.error("Error getting busy slots:", error);
+      const message = "Could not retrieve busy slots.";
       return res.status(500).json({error: {message}});
     }
   },
@@ -311,50 +325,82 @@ app.post(
 
 app.post(
   "/createEventOnBehalfOfAdmin",
-  // FIX: Use `Request`, `Response` types from `express`.
-  async (req: Request, res: Response) => {
-    const eventData = req.body.data;
+  async (req: express.Request, res: express.Response) => {
+    const {
+      clientName,
+      clientEmail,
+      clientPhone,
+      sport,
+      lessonType,
+      duration,
+      location,
+      startTime,
+      endTime,
+      message,
+      targetCalendarId,
+    } = req.body.data;
+
     if (!ADMIN_UID) {
-      const message = "Admin UID not configured on server.";
-      return res.status(500).json({error: {message}});
+      const msg = "Admin UID not configured on server.";
+      return res.status(500).json({error: {message: msg}});
+    }
+    // FIX TS2769: Add explicit check to satisfy TypeScript compiler
+    if (!oAuth2Client) {
+      return res.status(503).json({error: {message: "Server not configured."}});
     }
 
     try {
       const hasCreds = await setGoogleAuthCredentials(ADMIN_UID);
       if (!hasCreds) {
-        const message = "Admin's Google account is not connected.";
-        return res.status(400).json({error: {message}});
+        const err = "Admin not connected to Google.";
+        return res.json({
+          data: {eventCreated: false, eventId: null, error: err},
+        });
       }
 
       const calendar = google.calendar({version: "v3", auth: oAuth2Client});
-      const description = "Dettagli Prenotazione:\n\n" +
-        `Cliente: ${eventData.clientName}\n` +
-        `Email: ${eventData.clientEmail}\n` +
-        `Telefono: ${eventData.clientPhone}\n\n` +
-        `Tipo Lezione: ${eventData.lessonType}\n` +
-        `Durata: ${eventData.duration} min\n` +
-        `Note: ${eventData.message || "Nessuna"}`;
+
+      const description = `
+        Prenotazione per: ${clientName}
+        Telefono: ${clientPhone}
+        Email: ${clientEmail}
+        ---
+        Dettagli Lezione:
+        Sport: ${sport}
+        Tipo: ${lessonType}
+        Durata: ${duration} min
+        Sede: ${location}
+        ---
+        Note:
+        ${message || "Nessuna"}
+      `.trim().split("\n").map((line) => line.trim()).join("\n");
 
       const event = {
-        summary: `Lezione: ${eventData.sport} - ${eventData.clientName}`,
-        location: eventData.location,
+        summary: `Lezione ${sport} - ${clientName}`,
+        location,
         description,
-        start: {dateTime: eventData.startTime, timeZone: "Europe/Rome"},
-        end: {dateTime: eventData.endTime, timeZone: "Europe/Rome"},
-        attendees: [{email: eventData.clientEmail}],
+        start: {
+          dateTime: startTime,
+          timeZone: "Europe/Rome",
+        },
+        end: {
+          dateTime: endTime,
+          timeZone: "Europe/Rome",
+        },
+        attendees: [{email: clientEmail}],
         reminders: {
           useDefault: false,
           overrides: [
             {method: "email", minutes: 24 * 60},
-            {method: "popup", minutes: 60},
+            {method: "popup", minutes: 120},
           ],
         },
       };
 
       const createdEvent = await calendar.events.insert({
-        calendarId: eventData.targetCalendarId || "primary",
+        calendarId: targetCalendarId || "primary",
         requestBody: event,
-        sendUpdates: "all",
+        sendNotifications: true,
       });
 
       return res.json({
@@ -362,11 +408,15 @@ app.post(
       });
     } catch (error) {
       console.error("Error creating event:", error);
-      const message = "Could not create calendar event.";
-      return res.status(500).json({error: {message}});
+      const msg = "Could not create calendar event.";
+      return res.status(500).json({error: {message: msg}});
     }
   },
 );
 
 
-export const api = functions.https.onRequest(app);
+// FIX: Use type assertion for functions, similar to functions.config().
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const api = (functions as any)
+  .region("us-central1")
+  .https.onRequest(app);
