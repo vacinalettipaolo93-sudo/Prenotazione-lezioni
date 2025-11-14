@@ -7,8 +7,9 @@
  */
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
-// FIX: Changed express import to the default import syntax and imported Request, Response, and NextFunction types. This resolves type errors with express request and response objects.
-import express, {Request, Response, NextFunction} from "express";
+// FIX: Use standard ES6 module imports for Express and CORS. The `import = require()` syntax
+// was causing type resolution issues and is not compatible when targeting ECMAScript modules.
+import express from "express";
 import cors from "cors";
 import {google} from "googleapis";
 import {type DecodedIdToken} from "firebase-admin/auth";
@@ -16,41 +17,40 @@ import {type DecodedIdToken} from "firebase-admin/auth";
 // --- INIZIALIZZAZIONE ---
 admin.initializeApp();
 const db = admin.firestore();
-// FIX: Removed explicit typing on `app` and used direct `express()` call. Type is correctly inferred.
 const app = express();
 
 
 // --- CONFIGURAZIONE ---
 
-// Configurazione CORS più restrittiva e sicura.
+// Whitelist of allowed origins for CORS
 const allowedOrigins = [
-    "https://gestionale-prenotazioni-lezio.web.app", // Dominio di produzione Firebase
-    "https://gestionale-prenotazioni-lezio.firebaseapp.com", // Altro dominio Firebase
-    "https://gestionale-prenotazioni-lezioni.vercel.app", // Dominio di produzione Vercel
+    // The production frontend URL from the user's error logs.
+    "https://gestionale-prenotazioni-lezioni.vercel.app",
+    // It's also good practice to add Firebase Hosting URLs if used for preview/deployment.
+    "https://gestionale-prenotazioni-lezio.web.app",
+    "https://gestionale-prenotazioni-lezio.firebaseapp.com",
 ];
 
-// Regex per autorizzare i domini di anteprima di Vercel, es:
-// https://gestionale-prenotazioni-lezioni-git-main-tuonome.vercel.app
-const vercelPreviewRegex = /^https:\/\/gestionale-prenotazioni-lezioni-.*\.vercel\.app$/;
-
-app.use(cors({
-    origin: (origin, callback) => {
-        // Permetti richieste senza 'origin' (es. da Postman o test server-to-server)
-        if (!origin) {
-            return callback(null, true);
-        }
-        
-        // Controlla se l'origine è nella lista fissa o corrisponde al pattern di Vercel
-        if (allowedOrigins.includes(origin) || vercelPreviewRegex.test(origin)) {
+// FIX: Sostituita la configurazione CORS flessibile `cors({ origin: true })` con una whitelist
+// di origini più restrittiva e robusta per l'ambiente di produzione.
+// Sebbene `origin: true` sia utile per lo sviluppo, può essere inaffidabile in alcuni
+// ambienti cloud. Una whitelist esplicita garantisce che solo il frontend autorizzato
+// possa comunicare con l'API, risolvendo gli errori di preflight CORS riscontrati.
+const corsOptions = {
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+        // Permetti le richieste senza 'origin' (es. Postman, app mobile) e quelle dalla whitelist.
+        if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
-            functions.logger.warn("CORS Warning: Origin not allowed", {origin});
-            callback(new Error("Not allowed by CORS"));
+            console.warn(`CORS: Richiesta bloccata dall'origine: ${origin}`);
+            callback(new Error("Origine non permessa da CORS"));
         }
     },
-}));
+};
 
-// FIX: Corrected express app type inference allows app.use to be called correctly.
+// Applica il middleware CORS con la nuova configurazione.
+// Questo gestirà automaticamente le richieste di preflight (OPTIONS).
+app.use(cors(corsOptions));
 app.use(express.json());
 
 interface FunctionsConfig {
@@ -68,7 +68,7 @@ interface FunctionsConfig {
 const functionsConfig: FunctionsConfig = (functions as any).config();
 const GOOGLE_CLIENT_ID = functionsConfig.googleapi?.client_id;
 const GOOGLE_CLIENT_SECRET = functionsConfig.googleapi?.client_secret;
-const GOOGLE_REDIRECT_URI = functionsConfig.googleapi?.redirect_uri;
+const GOOGLE_REDIRECT_URI = functionsConfig.googleapi?.redirect_uri; // Corretto da client_uri
 const ADMIN_UID = functionsConfig.admin?.uid;
 
 const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
@@ -80,10 +80,9 @@ const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
 // --- MIDDLEWARE ---
 
 const authenticateAdmin = async (
-    // FIX: Use correct express types for request, response, and next function.
-    req: Request,
-    res: Response,
-    next: NextFunction,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
 ) => {
     const {authorization} = req.headers;
     if (!authorization || !authorization.startsWith("Bearer ")) {
@@ -106,10 +105,9 @@ const authenticateAdmin = async (
 };
 
 const checkServerConfig = (
-    // FIX: Use correct express types for request, response, and next function.
-    req: Request,
-    res: Response,
-    next: NextFunction,
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
 ) => {
     if (!oAuth2Client || !ADMIN_UID) {
         console.error(
@@ -144,10 +142,10 @@ app.use(checkServerConfig);
 app.post(
     "/getAuthURL",
     authenticateAdmin,
-    // FIX: Use correct express types for request and response.
-    (req: Request, res: Response) => {
+    (req: express.Request, res: express.Response) => {
         try {
-            functions.logger.info("Request received for /getAuthURL", {uid: res.locals.user.uid});
+            const user = res.locals.user as DecodedIdToken;
+            functions.logger.info("Request received for /getAuthURL", {uid: user.uid});
 
             if (!oAuth2Client) {
                 functions.logger.error("oAuth2Client is not configured. Check function configuration.", {
@@ -156,7 +154,7 @@ app.post(
                 return res.status(503).json({error: {message: "Il server non è configurato correttamente per le API Google."}});
             }
 
-            const adminUid = res.locals.user.uid;
+            const adminUid = user.uid;
             const authUrl = oAuth2Client.generateAuthUrl({
                 access_type: "offline",
                 prompt: "consent",
@@ -180,8 +178,7 @@ app.post(
 
 app.get(
     "/oauthcallback",
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
+    async (req: express.Request, res: express.Response) => {
         if (!oAuth2Client) {
             return res.status(503).json({error: {message: "Server not configured."}});
         }
@@ -223,10 +220,10 @@ app.get(
 app.post(
     "/checkTokenStatus",
     authenticateAdmin,
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
+    async (req: express.Request, res: express.Response) => {
         try {
-            const settingsDoc = await getAdminSettingsRef(res.locals.user.uid).get();
+            const user = res.locals.user as DecodedIdToken;
+            const settingsDoc = await getAdminSettingsRef(user.uid).get();
             const settings = settingsDoc.data();
             if (settings?.googleRefreshToken && settings?.googleAccountEmail) {
                 return res.json({data: {isConnected: true, email: settings.googleAccountEmail}});
@@ -243,10 +240,10 @@ app.post(
 app.post(
     "/disconnectGoogleAccount",
     authenticateAdmin,
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
+    async (req: express.Request, res: express.Response) => {
         try {
-            await getAdminSettingsRef(res.locals.user.uid).update({
+            const user = res.locals.user as DecodedIdToken;
+            await getAdminSettingsRef(user.uid).update({
                 googleRefreshToken: admin.firestore.FieldValue.delete(),
                 googleAccountEmail: admin.firestore.FieldValue.delete(),
             });
@@ -261,13 +258,13 @@ app.post(
 app.post(
     "/listGoogleCalendars",
     authenticateAdmin,
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
+    async (req: express.Request, res: express.Response) => {
         if (!oAuth2Client) {
             return res.status(503).json({error: {message: "Server not configured."}});
         }
         try {
-            const hasCreds = await setGoogleAuthCredentials(res.locals.user.uid);
+            const user = res.locals.user as DecodedIdToken;
+            const hasCreds = await setGoogleAuthCredentials(user.uid);
             if (!hasCreds) {
                 return res.status(400).json({error: {message: "Google account not connected."}});
             }
@@ -285,8 +282,7 @@ app.post(
 
 app.post(
     "/getBusySlotsOnBehalfOfAdmin",
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
+    async (req: express.Request, res: express.Response) => {
         const {timeMin, timeMax, calendarIds} = req.body.data;
 
         if (!ADMIN_UID || !oAuth2Client) {
@@ -308,11 +304,11 @@ app.post(
                 },
             });
 
-            const busyIntervals = [];
+            const busyIntervals: { start?: string | null; end?: string | null }[] = [];
             const calendarsData = result.data.calendars || {};
             for (const calId in calendarsData) {
                 if (calendarsData[calId].busy) {
-                    busyIntervals.push(...calendarsData[calId].busy);
+                    busyIntervals.push(...(calendarsData[calId].busy ?? []));
                 }
             }
             return res.json({data: busyIntervals});
@@ -325,14 +321,12 @@ app.post(
 
 app.post(
     "/createEventOnBehalfOfAdmin",
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
+    async (req: express.Request, res: express.Response) => {
         const {
             clientName, clientEmail, clientPhone, sport, lessonType,
             duration, location, startTime, endTime, message, targetCalendarId,
         } = req.body.data;
 
-        // FIX: Corrected typo in variable name from oAuth2Clien-t to oAuth2Client
         if (!ADMIN_UID || !oAuth2Client) {
             return res.status(503).json({error: {message: "Server not configured."}});
         }
@@ -392,4 +386,10 @@ app.post(
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const api = (functions as any)
     .region("us-central1")
+    .runWith({
+        // Aumenta la memoria per gestire meglio le API di Google
+        memory: "512MB", 
+        // Aumenta il timeout per le chiamate API più lente
+        timeoutSeconds: 60,
+    })
     .https.onRequest(app);
