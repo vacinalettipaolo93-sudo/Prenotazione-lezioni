@@ -1,8 +1,8 @@
 import esbuild from 'esbuild';
 import { copyFile } from 'fs/promises';
 import { mkdir } from 'fs/promises';
-// Rimuoviamo la dipendenza da readFileSync perché non leggeremo più file
-// import { readFileSync } from 'fs';
+// FIX: Import the `process` module to resolve the "Property 'exit' does not exist on type 'Process'" error. This ensures the Node.js `process` object and its methods are correctly recognized in the ES module scope.
+import process from 'process';
 
 /**
  * Prepara le variabili d'ambiente per la sostituzione da parte di esbuild.
@@ -59,3 +59,4 @@ try {
     console.error('Build del frontend fallito:', e);
     process.exit(1);
 }
+
