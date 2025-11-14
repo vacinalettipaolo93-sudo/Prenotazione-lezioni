@@ -10,7 +10,8 @@ import * as admin from "firebase-admin";
 // FIX: Use standard ES6 module imports for Express and CORS. The `import = require()` syntax
 // was causing type resolution issues and is not compatible when targeting ECMAScript modules.
 // FIX: Explicitly import Request, Response, and NextFunction types from express to resolve type inference issues.
-import express, {Request, Response, NextFunction} from "express";
+// FIX: Aliased Request, Response, and NextFunction types to avoid potential conflicts with global types (e.g., from the DOM library).
+import express, {Request as ExpressRequest, Response as ExpressResponse, NextFunction as ExpressNextFunction} from "express";
 import cors from "cors";
 import {google} from "googleapis";
 import {type DecodedIdToken} from "firebase-admin/auth";
@@ -87,9 +88,9 @@ const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
 // --- MIDDLEWARE ---
 
 const authenticateAdmin = async (
-    req: Request,
-    res: Response,
-    next: NextFunction,
+    req: ExpressRequest,
+    res: ExpressResponse,
+    next: ExpressNextFunction,
 ) => {
     const {authorization} = req.headers;
     if (!authorization || !authorization.startsWith("Bearer ")) {
@@ -112,9 +113,9 @@ const authenticateAdmin = async (
 };
 
 const checkServerConfig = (
-    req: Request,
-    res: Response,
-    next: NextFunction,
+    req: ExpressRequest,
+    res: ExpressResponse,
+    next: ExpressNextFunction,
 ) => {
     // FIX: Consenti alle richieste di preflight OPTIONS di passare senza eseguire i controlli di configurazione.
     // Il middleware CORS gestirà queste richieste e invierà le intestazioni appropriate.
@@ -155,7 +156,7 @@ const setGoogleAuthCredentials = async (adminUid: string) => {
 app.post(
     "/checkServerSetup",
     authenticateAdmin,
-    (req: Request, res: Response) => {
+    (req: ExpressRequest, res: ExpressResponse) => {
         const isConfigured = !!(oAuth2Client && ADMIN_UID && GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REDIRECT_URI);
         return res.json({data: {isConfigured}});
     },
@@ -164,7 +165,7 @@ app.post(
 app.post(
     "/getAuthURL",
     [authenticateAdmin, checkServerConfig],
-    (req: Request, res: Response) => {
+    (req: ExpressRequest, res: ExpressResponse) => {
         try {
             const user = res.locals.user as DecodedIdToken;
             functions.logger.info("Request received for /getAuthURL", {uid: user.uid});
@@ -199,7 +200,7 @@ app.post(
 app.get(
     "/oauthcallback",
     checkServerConfig,
-    async (req: Request, res: Response) => {
+    async (req: ExpressRequest, res: ExpressResponse) => {
         if (!oAuth2Client) {
             return res.status(503).json({error: {message: "Server not configured."}});
         }
@@ -241,7 +242,7 @@ app.get(
 app.post(
     "/checkTokenStatus",
     authenticateAdmin,
-    async (req: Request, res: Response) => {
+    async (req: ExpressRequest, res: ExpressResponse) => {
         try {
             const user = res.locals.user as DecodedIdToken;
             const settingsDoc = await getAdminSettingsRef(user.uid).get();
@@ -261,7 +262,7 @@ app.post(
 app.post(
     "/disconnectGoogleAccount",
     authenticateAdmin,
-    async (req: Request, res: Response) => {
+    async (req: ExpressRequest, res: ExpressResponse) => {
         try {
             const user = res.locals.user as DecodedIdToken;
             await getAdminSettingsRef(user.uid).update({
@@ -279,7 +280,7 @@ app.post(
 app.post(
     "/listGoogleCalendars",
     [authenticateAdmin, checkServerConfig],
-    async (req: Request, res: Response) => {
+    async (req: ExpressRequest, res: ExpressResponse) => {
         if (!oAuth2Client) {
             return res.status(503).json({error: {message: "Server not configured."}});
         }
@@ -304,7 +305,7 @@ app.post(
 app.post(
     "/getBusySlotsOnBehalfOfAdmin",
     checkServerConfig,
-    async (req: Request, res: Response) => {
+    async (req: ExpressRequest, res: ExpressResponse) => {
         const {timeMin, timeMax, calendarIds} = req.body.data;
 
         if (!ADMIN_UID || !oAuth2Client) {
@@ -344,7 +345,7 @@ app.post(
 app.post(
     "/createEventOnBehalfOfAdmin",
     checkServerConfig,
-    async (req: Request, res: Response) => {
+    async (req: ExpressRequest, res: ExpressResponse) => {
         const {
             clientName, clientEmail, clientPhone, sport, lessonType,
             duration, location, startTime, endTime, message, targetCalendarId,
