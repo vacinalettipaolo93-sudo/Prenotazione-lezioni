@@ -10,37 +10,74 @@ interface ServerConfigurationErrorProps {
     isLoading: boolean;
 }
 
+// Nuova schermata di errore/guida per la configurazione con Service Account
 const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onRetry, isLoading }) => (
-    <div className="bg-red-900/20 border-2 border-red-600 text-red-200 p-8 rounded-xl" role="alert">
-        <h2 className="text-2xl font-bold mb-4 text-white">⚠️ Configurazione del Server Incompleta</h2>
+    <div className="bg-amber-900/20 border-2 border-amber-600 text-amber-200 p-8 rounded-xl" role="alert">
+        <h2 className="text-2xl font-bold mb-4 text-white">⚙️ Configurazione Richiesta: Collegamento Permanente</h2>
         <p className="mb-4">
-            L'integrazione con Google Calendar non può essere attivata perché il server (Firebase Functions) non è stato configurato correttamente.
-            Mancano le chiavi API di Google o l'ID Amministratore necessari per comunicare in modo sicuro.
+            Per attivare l'integrazione con Google Calendar in modo stabile e permanente, è necessario configurare un <strong>"Service Account"</strong>.
+            Si tratta di una procedura da eseguire una sola volta che garantirà la sincronizzazione automatica senza più bisogno di connessioni manuali.
         </p>
-        <h3 className="font-bold text-lg mb-2 text-white">Azione Richiesta (per l'amministratore):</h3>
-        <p className="mb-2">
-            È necessario impostare le variabili di configurazione nel tuo progetto Firebase. Esegui i seguenti comandi nel terminale dalla root del tuo progetto,
-            sostituendo i valori segnaposto con le tue credenziali reali.
-        </p>
-        <div className="bg-gray-900 text-gray-300 font-mono text-sm p-4 rounded-lg overflow-x-auto">
-            <p className="mb-2">firebase functions:config:set googleapi.client_id="IL_TUO_CLIENT_ID_GOOGLE"</p>
-            <p className="mb-2">firebase functions:config:set googleapi.client_secret="IL_TUO_CLIENT_SECRET_GOOGLE"</p>
-            <p className="mb-2">firebase functions:config:set googleapi.redirect_uri="L'URL_DI_CALLBACK_DALLE_FUNCTIONS"</p>
-            <p>firebase functions:config:set admin.uid="IL_TUO_FIREBASE_ADMIN_UID"</p>
+        
+        <div className="space-y-6">
+            <div>
+                <h3 className="font-bold text-lg text-white">Passo 1: Crea il Service Account</h3>
+                <ol className="list-decimal list-inside ml-4 text-sm space-y-1 mt-2">
+                    <li>Vai alla <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline hover:text-blue-300">pagina dei Service Accounts</a> del tuo progetto Google Cloud.</li>
+                    <li>Clicca su <strong>"+ CREA ACCOUNT DI SERVIZIO"</strong>.</li>
+                    <li>Dagli un nome (es. "Gestore Calendario Prenotazioni") e clicca "CREA E CONTINUA".</li>
+                    <li>Nel passo "Concedi a questo account di servizio l'accesso al progetto", non serve aggiungere ruoli. Clicca "CONTINUA".</li>
+                    <li>Nell'ultimo passo, clicca "FINE".</li>
+                </ol>
+            </div>
+
+            <div>
+                <h3 className="font-bold text-lg text-white">Passo 2: Genera e Scarica la Chiave Privata</h3>
+                <ol className="list-decimal list-inside ml-4 text-sm space-y-1 mt-2">
+                    <li>Trova il service account appena creato nella lista, clicca sui tre puntini a destra e seleziona <strong>"Gestisci chiavi"</strong>.</li>
+                    <li>Clicca su "AGGIUNGI CHIAVE" &rarr; "Crea nuova chiave".</li>
+                    <li>Scegli il formato <strong>JSON</strong> e clicca "CREA". Verrà scaricato un file sul tuo computer.</li>
+                    <li>Apri il file JSON con un editor di testo (es. Blocco Note, VS Code). <strong>Il suo contenuto è la tua chiave segreta.</strong></li>
+                </ol>
+            </div>
+
+            <div>
+                <h3 className="font-bold text-lg text-white">Passo 3: Condividi i Tuoi Calendari</h3>
+                <ol className="list-decimal list-inside ml-4 text-sm space-y-1 mt-2">
+                    <li>Nel file JSON, trova il valore `client_email` (es. `nome-servizio@...iam.gserviceaccount.com`). Copialo.</li>
+                    <li>Vai su Google Calendar, trova il calendario che vuoi usare, clicca sui tre puntini &rarr; "Impostazioni e condivisione".</li>
+                    <li>Nella sezione "Condividi con persone o gruppi specifici", clicca "Aggiungi persone e gruppi".</li>
+                    <li>Incolla l'email del service account e imposta i permessi su <strong>"Apportare modifiche agli eventi"</strong>.</li>
+                    <li>Clicca "Invia". Ripeti per ogni calendario che vuoi usare.</li>
+                </ol>
+            </div>
+
+             <div>
+                <h3 className="font-bold text-lg text-white">Passo 4: Imposta la Chiave nel Server</h3>
+                 <p className="text-sm mt-2 mb-2">Esegui questo comando nel terminale (dalla cartella del tuo progetto), incollando l'<strong>intero contenuto</strong> del file JSON scaricato al posto di `...`.</p>
+                <div className="bg-gray-900 text-gray-300 font-mono text-sm p-4 rounded-lg overflow-x-auto">
+                    <p>firebase functions:config:set googleapi.service_account_key='...'</p>
+                </div>
+                 <p className="text-xs text-amber-300 mt-1"><strong>Importante:</strong> Assicurati che il contenuto JSON sia racchiuso tra virgolette singole (`'`) come mostrato.</p>
+            </div>
+            
+            <div>
+                 <h3 className="font-bold text-lg text-white">Passo 5: Fai il Deploy Finale</h3>
+                 <p className="text-sm mt-2 mb-2">Per applicare la nuova configurazione, esegui il deploy delle funzioni:</p>
+                 <div className="bg-gray-900 text-gray-300 font-mono text-sm p-4 rounded-lg">
+                    <p>firebase deploy --only functions</p>
+                </div>
+            </div>
+
         </div>
-        <p className="mt-4">
-            Dopo aver eseguito questi comandi, devi fare nuovamente il <strong>deploy</strong> delle tue funzioni con il comando: <code className="bg-gray-900 p-1 rounded">firebase deploy --only functions</code>.
-        </p>
-        <p className="mt-2 text-xs text-red-300">
-            L'URL di redirect di solito si trova nella console di Firebase Functions dopo il primo deploy, oppure puoi costruirlo come: https://us-central1-&lt;il-tuo-project-id&gt;.cloudfunctions.net/api/oauthcallback
-        </p>
-        <div className="mt-8 pt-6 border-t border-red-500/30">
+
+        <div className="mt-8 pt-6 border-t border-amber-500/30">
             <button
                 onClick={onRetry}
                 disabled={isLoading}
                 className="w-full flex items-center justify-center gap-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-lg transition disabled:bg-emerald-800 disabled:cursor-wait"
             >
-                {isLoading ? <Spinner /> : "Ho completato la configurazione, verifica di nuovo"}
+                {isLoading ? <Spinner /> : "Ho completato la configurazione, verifica"}
             </button>
         </div>
     </div>
@@ -49,67 +86,55 @@ const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onR
 
 const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSettingsChange }) => {
     const [settings, setSettings] = useState<AppSettings>(initialSettings);
-    const [connectionStatus, setConnectionStatus] = useState<{ isConnected: boolean; email: string | null }>({ isConnected: false, email: null });
+    const [connectionStatus, setConnectionStatus] = useState<{ isConnected: boolean; serviceAccountEmail: string | null; error?: string }>({ isConnected: false, serviceAccountEmail: null });
     const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
     const [loadingStatus, setLoadingStatus] = useState(true);
-    const [loadingCalendars, setLoadingCalendars] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [apiError, setApiError] = useState<string | null>(null);
     const [isServerConfigured, setIsServerConfigured] = useState<boolean | null>(null);
 
-    const checkStatus = useCallback(async (options: {isInitialCheck: boolean}) => {
-        if (!options.isInitialCheck) {
-             setLoadingStatus(true);
-        }
-        setApiError(null);
+    const checkStatus = useCallback(async () => {
+        setLoadingStatus(true);
+        setConnectionStatus({ isConnected: false, serviceAccountEmail: null });
         try {
-            const status = await GCal.checkGoogleConnection();
-            setConnectionStatus(status);
-            if (status.isConnected) {
-                setLoadingCalendars(true);
-                try {
+            const status = await GCal.getGoogleConnectionStatus();
+            setConnectionStatus({
+                isConnected: status.isConnected,
+                serviceAccountEmail: status.serviceAccountEmail,
+                error: status.error,
+            });
+
+            if (status.isConnected && status.calendars) {
+                setCalendars(status.calendars);
+            } else {
+                 // Se la connessione funziona ma non ci sono calendari, prova a caricarli separatamente
+                 if (status.isConnected) {
                     const calList = await GCal.listCalendars();
                     setCalendars(calList);
-                } catch (error: any) {
-                    console.error("Failed to load calendars:", error);
-                    if (!options.isInitialCheck) {
-                       setApiError(`Impossibile caricare i calendari: ${error.message}`);
-                    }
+                 } else {
                     setCalendars([]);
-                } finally {
-                    setLoadingCalendars(false);
-                }
-            } else {
-                setCalendars([]);
+                 }
             }
         } catch (error: any) {
             console.error("Failed to check connection status:", error);
-             // Mostra l'errore solo se non è il check iniziale e silenzioso
-            if (!options.isInitialCheck) {
-                 setApiError(`Errore di comunicazione con il server: ${error.message}.`);
-            }
-            setConnectionStatus({ isConnected: false, email: null });
+            setConnectionStatus({ isConnected: false, serviceAccountEmail: null, error: `Errore di comunicazione: ${error.message}` });
         } finally {
             setLoadingStatus(false);
         }
     }, []);
     
     const checkServer = useCallback(async () => {
-        setIsServerConfigured(null);
         setLoadingStatus(true);
-        setApiError(null);
         try {
             const configStatus = await GCal.checkServerConfiguration();
             setIsServerConfigured(configStatus.isConfigured);
             if (configStatus.isConfigured) {
-                await checkStatus({ isInitialCheck: true });
-            } else {
-                setLoadingStatus(false);
+                await checkStatus();
             }
         } catch (error: any) {
             console.error("Failed to check server configuration:", error);
             setIsServerConfigured(false);
-            setApiError(`Impossibile verificare la configurazione del server: ${error.message}.`);
+            setConnectionStatus({isConnected: false, serviceAccountEmail: null, error: `Impossibile verificare la configurazione: ${error.message}`});
+        } finally {
             setLoadingStatus(false);
         }
     }, [checkStatus]);
@@ -122,60 +147,11 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
         setSettings(initialSettings);
     }, [initialSettings]);
 
-    const handleConnect = async () => {
-        setApiError(null);
-
-        // 1. Apri il popup IMMEDIATAMENTE al click.
-        const popup = window.open('', 'google-auth', 'width=500,height=600');
-        
-        // 2. Controlla se il popup è stato bloccato.
-        if (!popup) {
-            setApiError("Il popup è stato bloccato dal browser. Abilita i popup per questo sito e riprova.");
-            return;
-        }
-        popup.document.write('<html><head><title>Connessione a Google</title><style>body { font-family: sans-serif; background-color: #111827; color: #d1d5db; display: flex; align-items: center; justify-content: center; height: 100%; margin: 0; } .container { text-align: center; } .spinner { border: 4px solid rgba(255, 255, 255, 0.2); width: 36px; height: 36px; border-radius: 50%; border-left-color: #10b981; animation: spin 1s ease infinite; margin: 0 auto 16px; } @keyframes spin { to { transform: rotate(360deg); } } </style></head><body><div class="container"><div class="spinner"></div><p>Attendi, stiamo generando il link di autenticazione...</p></div></body></html>');
-
-        try {
-            // 3. Ora recupera l'URL di autenticazione dal backend.
-            const authUrl = await GCal.getGoogleAuthUrl();
-            
-            // 4. Reindirizza il popup all'URL corretto.
-            popup.location.href = authUrl;
-            
-            // 5. Imposta l'intervallo per controllare quando il popup viene chiuso.
-            const checkPopup = setInterval(() => {
-                if (popup.closed) {
-                    clearInterval(checkPopup);
-                    // Eseguiamo il check dello stato dopo la chiusura.
-                    checkStatus({ isInitialCheck: false });
-                }
-            }, 1000);
-
-        } catch (error: any) {
-            console.error("Google connection failed:", error);
-            setApiError(`Impossibile avviare la connessione con Google: ${error.message}`);
-            // Se c'è un errore, chiudi il popup.
-            popup.close();
-        }
-    };
-
-    const handleDisconnect = async () => {
-        if (window.confirm("Sei sicuro di voler disconnettere il tuo account Google? Le prenotazioni non verranno più sincronizzate.")) {
-            setApiError(null);
-            try {
-                await GCal.disconnectGoogleAccount();
-                checkStatus({ isInitialCheck: false }); // Refresh status
-            } catch (error: any) {
-                setApiError(`Errore durante la disconnessione: ${error.message}`);
-            }
-        }
-    };
 
     const handleMappingChange = (locationId: string, calendarId: string) => {
         setSettings(prev => {
             if (!prev) return prev;
             const newMapping = { ...prev.locationCalendarMapping, [locationId]: calendarId };
-            // Also update the general list of selected calendars for fetching busy slots
             const selectedIds = new Set(Object.values(newMapping).filter(id => id && id !== 'none'));
             return { ...prev, locationCalendarMapping: newMapping, selectedCalendarIds: Array.from(selectedIds) };
         });
@@ -183,7 +159,6 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
 
     const handleSave = async () => {
         setSaving(true);
-        setApiError(null);
         try {
             await updateAppSettings({
                 locationCalendarMapping: settings.locationCalendarMapping,
@@ -192,11 +167,15 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             onSettingsChange();
             alert("Impostazioni salvate!");
         } catch(error: any) {
-            setApiError(`Errore durante il salvataggio: ${error.message}`);
+             setConnectionStatus(prev => ({...prev, error: `Errore durante il salvataggio: ${error.message}`}))
         } finally {
             setSaving(false);
         }
     };
+
+    if (loadingStatus) {
+         return <div className="flex items-center justify-center p-10"><Spinner /> Caricamento stato integrazione...</div>;
+    }
 
     if (isServerConfigured === false) {
         return <ServerConfigurationError onRetry={checkServer} isLoading={loadingStatus} />;
@@ -206,53 +185,27 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
         <div className="space-y-12">
             <div className="bg-gray-800 p-8 rounded-xl border border-gray-700">
                 <h2 className="text-2xl font-bold mb-2 text-white">Integrazione Google Calendar</h2>
-                <p className="text-gray-400 mb-6">Collega il tuo account Google per sincronizzare automaticamente le prenotazioni con il tuo calendario.</p>
+                <p className="text-gray-400 mb-6">Collega i tuoi calendari per sincronizzare automaticamente le prenotazioni.</p>
 
-                {!connectionStatus.isConnected && !loadingStatus && isServerConfigured && (
-                    <div className="bg-blue-900/50 border border-blue-700 text-blue-200 p-4 rounded-lg mb-6" role="alert">
-                        <h3 className="font-bold text-lg mb-2">Come funziona la connessione a Google?</h3>
-                        <p>Per poter controllare la tua disponibilità in tempo reale e aggiungere automaticamente le nuove prenotazioni, l'app ha bisogno del permesso di accedere al tuo Google Calendar.</p>
-                        <p className="mt-2">Clicca su <strong>"Connetti a Google"</strong> per avviare il processo. Si aprirà una finestra di Google dove potrai accedere e concedere le autorizzazioni necessarie. È un'operazione da fare solo una volta.</p>
-                    </div>
-                )}
-
-                {loadingStatus ? (
-                    <div className="flex items-center justify-center p-4"><Spinner /></div>
-                ) : connectionStatus.isConnected ? (
-                    <div className="bg-green-900/50 border border-green-700 p-4 rounded-lg flex items-center justify-between">
-                        <div>
-                            <p className="font-semibold text-green-300">Connesso come:</p>
-                            <p className="text-white">{connectionStatus.email}</p>
-                        </div>
-                        <button onClick={handleDisconnect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Disconnetti</button>
+                {connectionStatus.isConnected ? (
+                    <div className="bg-green-900/50 border border-green-700 p-4 rounded-lg">
+                        <p className="font-semibold text-green-300">Stato: Connesso</p>
+                        <p className="text-white text-sm">L'integrazione è attiva tramite l'account di servizio: <strong className="font-mono">{connectionStatus.serviceAccountEmail}</strong></p>
                     </div>
                 ) : (
-                    isServerConfigured && (
-                        <div className="bg-gray-900/50 border border-gray-700 p-4 rounded-lg flex items-center justify-between">
-                            <div>
-                                <p className="font-semibold text-yellow-300">Stato: Non Connesso</p>
-                                <p className="text-gray-300">Collega il tuo account per iniziare.</p>
-                            </div>
-                            <button onClick={handleConnect} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Connetti a Google</button>
-                        </div>
-                    )
-                )}
-
-                {apiError && (
-                    <div className="mt-4 bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-sm">
-                        <strong>Errore:</strong> {apiError}
+                    <div className="bg-red-900/50 border border-red-700 p-4 rounded-lg">
+                        <p className="font-semibold text-red-300">Stato: Errore di Connessione</p>
+                        <p className="text-white text-sm">{connectionStatus.error || "Impossibile connettersi a Google Calendar."}</p>
                     </div>
                 )}
             </div>
 
             {connectionStatus.isConnected && (
                 <div className="bg-gray-800 p-8 rounded-xl border border-gray-700">
-                    <h2 className="text-2xl font-bold mb-6 text-white">Mappatura Calendari per Sede</h2>
-                    <p className="text-gray-400 mb-6">Associa ogni sede a un calendario Google specifico. Le nuove prenotazioni per una sede verranno aggiunte al calendario corrispondente.</p>
+                    <h2 className="text-2xl font-bold mb-2 text-white">Mappatura Calendari per Sede</h2>
+                    <p className="text-gray-400 mb-6">Associa ogni sede a un calendario Google. Le nuove prenotazioni verranno aggiunte al calendario corrispondente.</p>
                     
-                    {loadingCalendars ? (
-                         <div className="flex items-center justify-center p-4"><Spinner /></div>
-                    ) : calendars.length > 0 ? (
+                    {calendars.length > 0 ? (
                         <div className="space-y-4">
                             {(settings.locations || []).map(loc => (
                                 <div key={loc.id} className="grid grid-cols-1 md:grid-cols-3 items-center gap-4">
@@ -274,7 +227,11 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                             ))}
                         </div>
                     ) : (
-                        <p className="text-center text-gray-500">Nessun calendario trovato o impossibile caricarli.</p>
+                        <div className="text-center text-gray-500 bg-gray-900/50 p-6 rounded-lg">
+                            <p className="font-semibold">Nessun calendario trovato.</p>
+                            <p className="text-sm">Assicurati di aver condiviso almeno un calendario con l'email del service account:</p>
+                            <p className="font-mono text-emerald-400 text-sm mt-2">{connectionStatus.serviceAccountEmail}</p>
+                        </div>
                     )}
                 </div>
             )}
