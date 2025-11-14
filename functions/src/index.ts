@@ -20,7 +20,6 @@ const app = express();
 
 
 // --- CONFIGURAZIONE ---
-
 const allowedOrigins = [
     "https://gestionale-prenotazioni-lezioni.vercel.app",
     "https://gestionale-prenotazioni-lezio.web.app",
@@ -35,11 +34,30 @@ const corsOptions = {
             callback(new Error("Origine non permessa da CORS"));
         }
     },
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET','POST','OPTIONS'],
+    credentials: true,
 };
 
+// Preflight handler and cors middleware
 app.options("*", cors(corsOptions));
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Additional defensive middleware to always set CORS headers when origin is allowed
+app.use((req: ExpressRequest, res: ExpressResponse, next: ExpressNextFunction) => {
+    const origin = req.headers.origin as string | undefined;
+    if (origin && allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    }
+    // Ensure OPTIONS preflight receives a quick response (if not handled by cors middleware)
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(204);
+    }
+    next();
+});
 
 interface FunctionsConfig {
     googleapi?: {
@@ -55,28 +73,29 @@ const SERVICE_ACCOUNT_KEY_JSON = functionsConfig.googleapi?.service_account_key;
 const ADMIN_UID = functionsConfig.admin?.uid;
 
 // --- MIDDLEWARE ---
-
 const authenticateAdmin = async (
     req: ExpressRequest,
     res: ExpressResponse,
     next: ExpressNextFunction,
 ) => {
-    const {authorization} = req.headers;
-    if (!authorization || !authorization.startsWith("Bearer ")) {
-        return res.status(401).send({error: {message: "Unauthorized: No token provided."}});
-    }
-
-    const token = authorization.split("Bearer ")[1];
-    if (!token) {
-        return res.status(401).send({error: {message: "Unauthorized: Malformed token."}});
-    }
-
     try {
+        const {authorization} = req.headers;
+        if (!authorization || !authorization.startsWith("Bearer ")) {
+            return res.status(401).send({error: {message: "Unauthorized: No token provided."}});
+        }
+
+        const token = authorization.split("Bearer ")[1];
+        if (!token) {
+            return res.status(401).send({error: {message: "Unauthorized: Malformed token."}});
+        }
+
         const decodedToken: DecodedIdToken = await admin.auth().verifyIdToken(token);
         res.locals.user = decodedToken;
         return next();
-    } catch (err) {
-        return res.status(403).send({error: {message: "Unauthorized: Invalid token."}});
+    } catch (err: any) {
+        console.error('Authentication error:', err);
+        // Return 401 rather than 403 for token verification issues to be consistent with clients
+        return res.status(401).send({error: {message: "Unauthorized: Invalid token."}});
     }
 };
 
@@ -91,7 +110,6 @@ const checkServerConfig = (
     }
     return next();
 };
-
 
 // --- HELPERS ---
 const getGoogleAuthClient = () => {
@@ -111,9 +129,7 @@ const getGoogleAuthClient = () => {
     }
 };
 
-
 // --- ENDPOINTS ---
-
 app.post(
     "/checkServerSetup",
     authenticateAdmin,
@@ -161,7 +177,6 @@ app.post(
     },
 );
 
-
 app.post(
     "/listGoogleCalendars",
     [authenticateAdmin, checkServerConfig],
@@ -182,7 +197,6 @@ app.post(
 );
 
 // --- ENDPOINTS PUBBLICI (che agiscono per conto dell'admin) ---
-
 app.post(
     "/getBusySlotsOnBehalfOfAdmin",
     checkServerConfig,
