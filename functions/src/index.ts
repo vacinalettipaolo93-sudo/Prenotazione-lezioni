@@ -10,8 +10,7 @@ import * as admin from "firebase-admin";
 // FIX: Use standard ES6 module imports for Express and CORS. The `import = require()` syntax
 // was causing type resolution issues and is not compatible when targeting ECMAScript modules.
 // FIX: Explicitly import Request, Response, and NextFunction types from express to resolve type inference issues.
-// FIX: Changed to a namespace import for express and use qualified types like express.Request to avoid type collisions.
-import express from "express";
+import express, {Request, Response, NextFunction} from "express";
 import cors from "cors";
 import {google} from "googleapis";
 import {type DecodedIdToken} from "firebase-admin/auth";
@@ -88,9 +87,9 @@ const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
 // --- MIDDLEWARE ---
 
 const authenticateAdmin = async (
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction,
+    req: Request,
+    res: Response,
+    next: NextFunction,
 ) => {
     const {authorization} = req.headers;
     if (!authorization || !authorization.startsWith("Bearer ")) {
@@ -113,9 +112,9 @@ const authenticateAdmin = async (
 };
 
 const checkServerConfig = (
-    req: express.Request,
-    res: express.Response,
-    next: express.NextFunction,
+    req: Request,
+    res: Response,
+    next: NextFunction,
 ) => {
     // FIX: Consenti alle richieste di preflight OPTIONS di passare senza eseguire i controlli di configurazione.
     // Il middleware CORS gestirà queste richieste e invierà le intestazioni appropriate.
@@ -124,12 +123,12 @@ const checkServerConfig = (
         return next();
     }
 
-    if (!oAuth2Client || !ADMIN_UID) {
+    if (!oAuth2Client || !ADMIN_UID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REDIRECT_URI) {
         console.error(
             "CRITICAL ERROR: Google API config or Admin UID is not set. " +
             "Run `firebase functions:config:set`.",
         );
-        return res.status(503).json({error: {message: "Server is not configured for Google requests."}});
+        return res.status(503).json({error: {message: "Il server non è configurato per le richieste a Google."}});
     }
     return next();
 };
@@ -152,20 +151,26 @@ const setGoogleAuthCredentials = async (adminUid: string) => {
 };
 
 // --- ENDPOINTS ---
-app.use(checkServerConfig);
+
+app.post(
+    "/checkServerSetup",
+    authenticateAdmin,
+    (req: Request, res: Response) => {
+        const isConfigured = !!(oAuth2Client && ADMIN_UID && GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET && GOOGLE_REDIRECT_URI);
+        return res.json({data: {isConfigured}});
+    },
+);
 
 app.post(
     "/getAuthURL",
-    authenticateAdmin,
-    (req: express.Request, res: express.Response) => {
+    [authenticateAdmin, checkServerConfig],
+    (req: Request, res: Response) => {
         try {
             const user = res.locals.user as DecodedIdToken;
             functions.logger.info("Request received for /getAuthURL", {uid: user.uid});
 
             if (!oAuth2Client) {
-                functions.logger.error("oAuth2Client is not configured. Check function configuration.", {
-                    hasClientId: !!GOOGLE_CLIENT_ID,
-                });
+                // Questo check è ridondante a causa del middleware ma è una sicurezza in più
                 return res.status(503).json({error: {message: "Il server non è configurato correttamente per le API Google."}});
             }
 
@@ -193,7 +198,8 @@ app.post(
 
 app.get(
     "/oauthcallback",
-    async (req: express.Request, res: express.Response) => {
+    checkServerConfig,
+    async (req: Request, res: Response) => {
         if (!oAuth2Client) {
             return res.status(503).json({error: {message: "Server not configured."}});
         }
@@ -235,7 +241,7 @@ app.get(
 app.post(
     "/checkTokenStatus",
     authenticateAdmin,
-    async (req: express.Request, res: express.Response) => {
+    async (req: Request, res: Response) => {
         try {
             const user = res.locals.user as DecodedIdToken;
             const settingsDoc = await getAdminSettingsRef(user.uid).get();
@@ -255,7 +261,7 @@ app.post(
 app.post(
     "/disconnectGoogleAccount",
     authenticateAdmin,
-    async (req: express.Request, res: express.Response) => {
+    async (req: Request, res: Response) => {
         try {
             const user = res.locals.user as DecodedIdToken;
             await getAdminSettingsRef(user.uid).update({
@@ -272,8 +278,8 @@ app.post(
 
 app.post(
     "/listGoogleCalendars",
-    authenticateAdmin,
-    async (req: express.Request, res: express.Response) => {
+    [authenticateAdmin, checkServerConfig],
+    async (req: Request, res: Response) => {
         if (!oAuth2Client) {
             return res.status(503).json({error: {message: "Server not configured."}});
         }
@@ -297,7 +303,8 @@ app.post(
 
 app.post(
     "/getBusySlotsOnBehalfOfAdmin",
-    async (req: express.Request, res: express.Response) => {
+    checkServerConfig,
+    async (req: Request, res: Response) => {
         const {timeMin, timeMax, calendarIds} = req.body.data;
 
         if (!ADMIN_UID || !oAuth2Client) {
@@ -336,7 +343,8 @@ app.post(
 
 app.post(
     "/createEventOnBehalfOfAdmin",
-    async (req: express.Request, res: express.Response) => {
+    checkServerConfig,
+    async (req: Request, res: Response) => {
         const {
             clientName, clientEmail, clientPhone, sport, lessonType,
             duration, location, startTime, endTime, message, targetCalendarId,
