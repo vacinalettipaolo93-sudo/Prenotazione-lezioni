@@ -1,17 +1,16 @@
-import { auth, functions } from './firebase';
+import { auth } from './firebase';
 import axios from 'axios';
-import { type GoogleCalendar, type Booking, type CalendarEvent } from '../types';
+import { type GoogleCalendar } from '../types';
 import { FIREBASE_CONFIG } from '../constants';
 
 // =====================================================================================
-// NUOVA ARCHITETTURA:
-// Questo file ora chiama un'unica Cloud Function (`api`) che funge da server Express.
-// Le diverse operazioni sono gestite come "endpoint" su quel server.
-// Questo risolve i problemi di CORS e rende l'architettura più robusta.
+// ARCHITETTURA RIVISTA (v3): Service Account
+// Questo file ora comunica con un backend che utilizza un Service Account per l'autenticazione
+// con Google. Questo elimina completamente il flusso OAuth2 lato utente, rendendo
+// la connessione permanente e molto più stabile.
 // =====================================================================================
 
-// L'URL di base della nostra nuova funzione API.
-// Lo costruiamo dinamicamente usando il Project ID per evitare errori.
+// L'URL di base della nostra funzione API.
 const API_BASE_URL = `https://us-central1-${FIREBASE_CONFIG.projectId}.cloudfunctions.net/api`;
 
 
@@ -21,7 +20,6 @@ const API_BASE_URL = `https://us-central1-${FIREBASE_CONFIG.projectId}.cloudfunc
  */
 const callAdminApi = async (endpoint: string, dataPayload?: any) => {
     const user = auth?.currentUser;
-    // Se l'utente non è loggato, non tentare nemmeno la chiamata.
     if (!user) {
         throw new Error("Autenticazione richiesta per questa operazione.");
     }
@@ -36,12 +34,9 @@ const callAdminApi = async (endpoint: string, dataPayload?: any) => {
                 'Content-Type': 'application/json'
             }
         });
-        // La nostra API restituisce sempre un oggetto { data: ... } per coerenza
-        // con il vecchio SDK httpsCallable.
         return response.data;
     } catch (error: any) {
         console.error(`Errore API [${endpoint}]:`, error.response?.data || error.message);
-        // Rilancia l'errore per permettere al chiamante di gestirlo.
         throw new Error(error.response?.data?.error?.message || `Chiamata API a ${endpoint} fallita.`);
     }
 };
@@ -67,7 +62,7 @@ const callPublicApi = async (endpoint: string, dataPayload?: any) => {
 
 
 // ==================================================================
-// Implementazione delle funzioni del servizio utilizzando i nuovi helper
+// Implementazione delle funzioni del servizio con la nuova logica
 // ==================================================================
 
 export const checkServerConfiguration = async (): Promise<{ isConfigured: boolean }> => {
@@ -75,29 +70,11 @@ export const checkServerConfiguration = async (): Promise<{ isConfigured: boolea
     return result.data;
 };
 
-export const checkGoogleConnection = async (): Promise<{ isConnected: boolean; email: string | null; error?: string }> => {
-    if (!auth?.currentUser) return { isConnected: false, email: null, error: "Utente non loggato." };
-    const result = await callAdminApi('checkTokenStatus');
+export const getGoogleConnectionStatus = async (): Promise<{ isConnected: boolean; serviceAccountEmail: string | null; error?: string; calendars?: GoogleCalendar[] }> => {
+    if (!auth?.currentUser) return { isConnected: false, serviceAccountEmail: null, error: "Utente non loggato." };
+    const result = await callAdminApi('getConnectionStatus');
     return result.data;
 };
-
-/**
- * Recupera l'URL di autorizzazione OAuth2 di Google dal backend.
- * Questo URL verrà utilizzato per avviare il flusso di accesso di Google in un popup.
- * @returns {Promise<string>} L'URL di autorizzazione.
- */
-export const getGoogleAuthUrl = async (): Promise<string> => {
-    const result = await callAdminApi('getAuthURL');
-    if (!result.data?.url) {
-        throw new Error("URL di autenticazione non ricevuto dal server.");
-    }
-    return result.data.url;
-};
-
-export const disconnectGoogleAccount = async (): Promise<{ success: boolean }> => {
-     const result = await callAdminApi('disconnectGoogleAccount');
-     return result.data;
-}
 
 export const listCalendars = async (): Promise<GoogleCalendar[]> => {
     const result = await callAdminApi('listGoogleCalendars');
