@@ -28,14 +28,26 @@ export const loginWithEmail = (email, password) => {
   return signInWithEmailAndPassword(auth, email, password);
 };
 
-// Funzione per il login con Google
-export const loginWithGoogle = () => {
+// Funzione per il login con Google (modificata per richiedere scope Calendar)
+export const loginWithGoogle = async () => {
   if (!auth) {
     console.error("Login con Google fallito: Firebase non inizializzato.");
     return Promise.reject(new Error("Firebase not initialized"));
   }
   const provider = new GoogleAuthProvider();
-  return signInWithPopup(auth, provider);
+
+  // Richiedi i permessi per gestire eventi nel calendar
+  provider.addScope('https://www.googleapis.com/auth/calendar.events');
+  // Forzare il prompt di consenso può aiutare a riottenere i permessi se necessario
+  provider.setCustomParameters({ prompt: 'consent' });
+
+  try {
+    const credential = await signInWithPopup(auth, provider);
+    return credential;
+  } catch (error) {
+    console.error('Errore durante il login con Google:', error);
+    throw error;
+  }
 };
 
 // Funzione per il logout
@@ -62,7 +74,7 @@ export const getAppSettings = async (): Promise<AppSettings | null> => {
         const defaultSettings: AppSettings = {
             welcomeTitle: "Benvenuto su Prenota Pro",
             welcomeMessage: "Seleziona lo sport e prenota la tua lezione.",
-            bookingNoticeHours: 12, // Default 12 ore di preavviso
+            bookingNoticeHours: 12,
             services: [
                 { id: 'tennis', name: 'Tennis', emoji: '🎾' },
                 { id: 'padel', name: 'Padel', emoji: '🥎' }
@@ -74,16 +86,16 @@ export const getAppSettings = async (): Promise<AppSettings | null> => {
             availability: {
                 salo: {
                     dayOverrides: {
-                        '1': { enabled: true, startTime: '09:00', endTime: '18:00' }, // Lun
-                        '2': { enabled: true, startTime: '09:00', endTime: '18:00' }, // Mar
-                        '3': { enabled: true, startTime: '09:00', endTime: '18:00' }, // Mer
+                        '1': { enabled: true, startTime: '09:00', endTime: '18:00' },
+                        '2': { enabled: true, startTime: '09:00', endTime: '18:00' },
+                        '3': { enabled: true, startTime: '09:00', endTime: '18:00' },
                     },
                     slotInterval: 60
                 },
                 manerba: {
                     dayOverrides: {
-                        '4': { enabled: true, startTime: '10:00', endTime: '19:00' }, // Gio
-                        '5': { enabled: true, startTime: '10:00', endTime: '19:00' }, // Ven
+                        '4': { enabled: true, startTime: '10:00', endTime: '19:00' },
+                        '5': { enabled: true, startTime: '10:00', endTime: '19:00' },
                     },
                     slotInterval: 60
                 }
@@ -101,11 +113,8 @@ export const getAppSettings = async (): Promise<AppSettings | null> => {
         };
 
         if (docSnap.exists()) {
-            // Unisci le impostazioni salvate con quelle di default per assicurarti
-            // che i nuovi campi siano presenti anche se non salvati nel DB
             return { ...defaultSettings, ...docSnap.data() };
         } else {
-            // Se non ci sono impostazioni, crea il documento con quelle di default
             await setDoc(docRef, defaultSettings);
             return defaultSettings;
         }
@@ -118,22 +127,14 @@ export const getAppSettings = async (): Promise<AppSettings | null> => {
 export const updateAppSettings = async (settings: Partial<AppSettings>): Promise<void> => {
     if (!db) throw new Error("Firebase not initialized");
     const docRef = getSettingsDocRef();
-    // Usiamo merge: true per aggiornare solo i campi forniti
     await setDoc(docRef, settings, { merge: true });
 };
 
 export const uploadProfilePhoto = async (file: File): Promise<string> => {
     if (!storage) throw new Error("Firebase Storage not initialized");
-    
-    // Genera un nome di file univoco
     const filePath = `profile_photos/${ADMIN_UID}/${file.name}_${Date.now()}`;
     const storageRef = ref(storage, filePath);
-    
-    // Carica il file
     const snapshot = await uploadBytes(storageRef, file);
-    
-    // Ottieni l'URL di download
     const downloadURL = await getDownloadURL(snapshot.ref);
-    
     return downloadURL;
 };
