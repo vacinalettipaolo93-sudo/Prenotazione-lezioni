@@ -5,6 +5,34 @@ import { type TabProps } from './types';
 import Spinner from '../Spinner';
 import { updateAppSettings } from '../../services/firebase';
 
+const ServerConfigurationError: React.FC = () => (
+    <div className="bg-red-900/20 border-2 border-red-600 text-red-200 p-8 rounded-xl" role="alert">
+        <h2 className="text-2xl font-bold mb-4 text-white">⚠️ Configurazione del Server Incompleta</h2>
+        <p className="mb-4">
+            L'integrazione con Google Calendar non può essere attivata perché il server (Firebase Functions) non è stato configurato correttamente.
+            Mancano le chiavi API di Google o l'ID Amministratore necessari per comunicare in modo sicuro.
+        </p>
+        <h3 className="font-bold text-lg mb-2 text-white">Azione Richiesta (per l'amministratore):</h3>
+        <p className="mb-2">
+            È necessario impostare le variabili di configurazione nel tuo progetto Firebase. Esegui i seguenti comandi nel terminale dalla root del tuo progetto,
+            sostituendo i valori segnaposto con le tue credenziali reali.
+        </p>
+        <div className="bg-gray-900 text-gray-300 font-mono text-sm p-4 rounded-lg overflow-x-auto">
+            <p className="mb-2">firebase functions:config:set googleapi.client_id="IL_TUO_CLIENT_ID_GOOGLE"</p>
+            <p className="mb-2">firebase functions:config:set googleapi.client_secret="IL_TUO_CLIENT_SECRET_GOOGLE"</p>
+            <p className="mb-2">firebase functions:config:set googleapi.redirect_uri="L'URL_DI_CALLBACK_DALLE_FUNCTIONS"</p>
+            <p>firebase functions:config:set admin.uid="IL_TUO_FIREBASE_ADMIN_UID"</p>
+        </div>
+        <p className="mt-4">
+            Dopo aver eseguito questi comandi, devi fare nuovamente il <strong>deploy</strong> delle tue funzioni con il comando: <code className="bg-gray-900 p-1 rounded">firebase deploy --only functions</code>.
+        </p>
+            <p className="mt-2 text-xs text-red-300">
+            L'URL di redirect di solito si trova nella console di Firebase Functions dopo il primo deploy, oppure puoi costruirlo come: https://us-central1-&lt;il-tuo-project-id&gt;.cloudfunctions.net/api/oauthcallback
+        </p>
+    </div>
+);
+
+
 const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSettingsChange }) => {
     const [settings, setSettings] = useState<AppSettings>(initialSettings);
     const [connectionStatus, setConnectionStatus] = useState<{ isConnected: boolean; email: string | null }>({ isConnected: false, email: null });
@@ -13,6 +41,7 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     const [loadingCalendars, setLoadingCalendars] = useState(false);
     const [saving, setSaving] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
+    const [isServerConfigured, setIsServerConfigured] = useState<boolean | null>(null);
 
     const checkStatus = useCallback(async (options: {isInitialCheck: boolean}) => {
         if (!options.isInitialCheck) {
@@ -52,9 +81,27 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     }, []);
 
     useEffect(() => {
-        // Esegui il check iniziale in modo "silenzioso".
-        // Se fallisce, l'utente non vedrà un errore, ma solo lo stato "Non Connesso".
-        checkStatus({ isInitialCheck: true });
+        const checkServer = async () => {
+            setIsServerConfigured(null);
+            setLoadingStatus(true);
+            try {
+                const configStatus = await GCal.checkServerConfiguration();
+                setIsServerConfigured(configStatus.isConfigured);
+                if (configStatus.isConfigured) {
+                    // Se il server è configurato, procedi a controllare lo stato della connessione
+                    await checkStatus({ isInitialCheck: true });
+                } else {
+                    // Altrimenti, fermati e mostra il messaggio di errore di configurazione
+                    setLoadingStatus(false);
+                }
+            } catch (error: any) {
+                console.error("Failed to check server configuration:", error);
+                setIsServerConfigured(false);
+                setApiError(`Impossibile verificare la configurazione del server: ${error.message}.`);
+                setLoadingStatus(false);
+            }
+        };
+        checkServer();
     }, [checkStatus]);
     
     useEffect(() => {
@@ -136,12 +183,24 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             setSaving(false);
         }
     };
+
+    if (isServerConfigured === false) {
+        return <ServerConfigurationError />;
+    }
     
     return (
         <div className="space-y-12">
             <div className="bg-gray-800 p-8 rounded-xl border border-gray-700">
                 <h2 className="text-2xl font-bold mb-2 text-white">Integrazione Google Calendar</h2>
                 <p className="text-gray-400 mb-6">Collega il tuo account Google per sincronizzare automaticamente le prenotazioni con il tuo calendario.</p>
+
+                {!connectionStatus.isConnected && !loadingStatus && isServerConfigured && (
+                    <div className="bg-blue-900/50 border border-blue-700 text-blue-200 p-4 rounded-lg mb-6" role="alert">
+                        <h3 className="font-bold text-lg mb-2">Come funziona la connessione a Google?</h3>
+                        <p>Per poter controllare la tua disponibilità in tempo reale e aggiungere automaticamente le nuove prenotazioni, l'app ha bisogno del permesso di accedere al tuo Google Calendar.</p>
+                        <p className="mt-2">Clicca su <strong>"Connetti a Google"</strong> per avviare il processo. Si aprirà una finestra di Google dove potrai accedere e concedere le autorizzazioni necessarie. È un'operazione da fare solo una volta.</p>
+                    </div>
+                )}
 
                 {loadingStatus ? (
                     <div className="flex items-center justify-center p-4"><Spinner /></div>
@@ -154,13 +213,15 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                         <button onClick={handleDisconnect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Disconnetti</button>
                     </div>
                 ) : (
-                    <div className="bg-gray-900/50 border border-gray-700 p-4 rounded-lg flex items-center justify-between">
-                        <div>
-                            <p className="font-semibold text-yellow-300">Stato: Non Connesso</p>
-                            <p className="text-gray-300">Collega il tuo account per iniziare.</p>
+                    isServerConfigured && (
+                        <div className="bg-gray-900/50 border border-gray-700 p-4 rounded-lg flex items-center justify-between">
+                            <div>
+                                <p className="font-semibold text-yellow-300">Stato: Non Connesso</p>
+                                <p className="text-gray-300">Collega il tuo account per iniziare.</p>
+                            </div>
+                            <button onClick={handleConnect} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Connetti a Google</button>
                         </div>
-                        <button onClick={handleConnect} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Connetti a Google</button>
-                    </div>
+                    )
                 )}
 
                 {apiError && (
