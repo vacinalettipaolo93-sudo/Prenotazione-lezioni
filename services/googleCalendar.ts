@@ -70,6 +70,11 @@ const callPublicApi = async (endpoint: string, dataPayload?: any) => {
 // Implementazione delle funzioni del servizio utilizzando i nuovi helper
 // ==================================================================
 
+export const checkServerConfiguration = async (): Promise<{ isConfigured: boolean }> => {
+    const result = await callAdminApi('checkServerSetup');
+    return result.data;
+};
+
 export const checkGoogleConnection = async (): Promise<{ isConnected: boolean; email: string | null; error?: string }> => {
     if (!auth?.currentUser) return { isConnected: false, email: null, error: "Utente non loggato." };
     const result = await callAdminApi('checkTokenStatus');
