@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { collection, addDoc, query, where, getDocs, Timestamp } from 'firebase/firestore';
 import { db, getAppSettings } from '../services/firebase';
@@ -28,7 +29,8 @@ const BookingCalendar: React.FC<BookingCalendarProps> = ({ user }) => {
     nextWeek.setDate(today.getDate() + 7);
 
     let gCalBusyTimes: Date[] = [];
-    const connection = await GCal.checkGoogleConnection();
+    // FIX: Replaced non-existent 'checkGoogleConnection' with 'getGoogleConnectionStatus'.
+    const connection = await GCal.getGoogleConnectionStatus();
     setIsConnected(connection.isConnected);
 
     if (connection.isConnected) {
