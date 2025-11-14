@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, signOut, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { getFunctions, httpsCallable } from 'firebase/functions';
@@ -26,6 +26,16 @@ export const loginWithEmail = (email, password) => {
     return Promise.reject(new Error("Firebase not initialized"));
   }
   return signInWithEmailAndPassword(auth, email, password);
+};
+
+// Funzione per il login con Google
+export const loginWithGoogle = () => {
+  if (!auth) {
+    console.error("Login con Google fallito: Firebase non inizializzato.");
+    return Promise.reject(new Error("Firebase not initialized"));
+  }
+  const provider = new GoogleAuthProvider();
+  return signInWithPopup(auth, provider);
 };
 
 // Funzione per il logout
