@@ -5,7 +5,12 @@ import { type TabProps } from './types';
 import Spinner from '../Spinner';
 import { updateAppSettings } from '../../services/firebase';
 
-const ServerConfigurationError: React.FC = () => (
+interface ServerConfigurationErrorProps {
+    onRetry: () => void;
+    isLoading: boolean;
+}
+
+const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onRetry, isLoading }) => (
     <div className="bg-red-900/20 border-2 border-red-600 text-red-200 p-8 rounded-xl" role="alert">
         <h2 className="text-2xl font-bold mb-4 text-white">⚠️ Configurazione del Server Incompleta</h2>
         <p className="mb-4">
@@ -26,9 +31,18 @@ const ServerConfigurationError: React.FC = () => (
         <p className="mt-4">
             Dopo aver eseguito questi comandi, devi fare nuovamente il <strong>deploy</strong> delle tue funzioni con il comando: <code className="bg-gray-900 p-1 rounded">firebase deploy --only functions</code>.
         </p>
-            <p className="mt-2 text-xs text-red-300">
+        <p className="mt-2 text-xs text-red-300">
             L'URL di redirect di solito si trova nella console di Firebase Functions dopo il primo deploy, oppure puoi costruirlo come: https://us-central1-&lt;il-tuo-project-id&gt;.cloudfunctions.net/api/oauthcallback
         </p>
+        <div className="mt-8 pt-6 border-t border-red-500/30">
+            <button
+                onClick={onRetry}
+                disabled={isLoading}
+                className="w-full flex items-center justify-center gap-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-lg transition disabled:bg-emerald-800 disabled:cursor-wait"
+            >
+                {isLoading ? <Spinner /> : "Ho completato la configurazione, verifica di nuovo"}
+            </button>
+        </div>
     </div>
 );
 
@@ -79,30 +93,30 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             setLoadingStatus(false);
         }
     }, []);
-
-    useEffect(() => {
-        const checkServer = async () => {
-            setIsServerConfigured(null);
-            setLoadingStatus(true);
-            try {
-                const configStatus = await GCal.checkServerConfiguration();
-                setIsServerConfigured(configStatus.isConfigured);
-                if (configStatus.isConfigured) {
-                    // Se il server è configurato, procedi a controllare lo stato della connessione
-                    await checkStatus({ isInitialCheck: true });
-                } else {
-                    // Altrimenti, fermati e mostra il messaggio di errore di configurazione
-                    setLoadingStatus(false);
-                }
-            } catch (error: any) {
-                console.error("Failed to check server configuration:", error);
-                setIsServerConfigured(false);
-                setApiError(`Impossibile verificare la configurazione del server: ${error.message}.`);
+    
+    const checkServer = useCallback(async () => {
+        setIsServerConfigured(null);
+        setLoadingStatus(true);
+        setApiError(null);
+        try {
+            const configStatus = await GCal.checkServerConfiguration();
+            setIsServerConfigured(configStatus.isConfigured);
+            if (configStatus.isConfigured) {
+                await checkStatus({ isInitialCheck: true });
+            } else {
                 setLoadingStatus(false);
             }
-        };
-        checkServer();
+        } catch (error: any) {
+            console.error("Failed to check server configuration:", error);
+            setIsServerConfigured(false);
+            setApiError(`Impossibile verificare la configurazione del server: ${error.message}.`);
+            setLoadingStatus(false);
+        }
     }, [checkStatus]);
+
+    useEffect(() => {
+        checkServer();
+    }, [checkServer]);
     
     useEffect(() => {
         setSettings(initialSettings);
@@ -185,7 +199,7 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     };
 
     if (isServerConfigured === false) {
-        return <ServerConfigurationError />;
+        return <ServerConfigurationError onRetry={checkServer} isLoading={loadingStatus} />;
     }
     
     return (
