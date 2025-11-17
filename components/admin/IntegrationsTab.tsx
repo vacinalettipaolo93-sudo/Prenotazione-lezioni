@@ -4,6 +4,7 @@ import { type AppSettings, type GoogleCalendar } from '../../types';
 import { type TabProps } from './types';
 import Spinner from '../Spinner';
 import { updateAppSettings } from '../../services/firebase';
+import { getAuth } from 'firebase/auth';
 
 interface ServerConfigurationErrorProps {
     onRetry: () => void;
@@ -23,7 +24,7 @@ const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onR
             <div>
                 <h3 className="font-bold text-lg text-white">Passo 1: Crea il Service Account</h3>
                 <ol className="list-decimal list-inside ml-4 text-sm space-y-1 mt-2">
-                    <li>Vai alla <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline hover:text-blue-300">pagina dei Service Accounts</a> del tuo progetto Google Cloud.</li>
+                    <li>Vai alla <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer" className="text-blue-400 underline hover:text-blue-300">Console IAM</a>.</li>
                     <li>Clicca su <strong>"+ CREA ACCOUNT DI SERVIZIO"</strong>.</li>
                     <li>Dagli un nome (es. "Gestore Calendario Prenotazioni") e clicca "CREA E CONTINUA".</li>
                     <li>Nel passo "Concedi a questo account di servizio l'accesso al progetto", non serve aggiungere ruoli. Clicca "CONTINUA".</li>
@@ -35,26 +36,24 @@ const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onR
                 <h3 className="font-bold text-lg text-white">Passo 2: Genera e Scarica la Chiave Privata</h3>
                 <ol className="list-decimal list-inside ml-4 text-sm space-y-1 mt-2">
                     <li>Trova il service account appena creato nella lista, clicca sui tre puntini a destra e seleziona <strong>"Gestisci chiavi"</strong>.</li>
-                    <li>Clicca su "AGGIUNGI CHIAVE" &rarr; "Crea nuova chiave".</li>
+                    <li>Clicca su "AGGIUNGI CHIAVE" → "Crea nuova chiave".</li>
                     <li>Scegli il formato <strong>JSON</strong> e clicca "CREA". Verrà scaricato un file sul tuo computer.</li>
-                    <li>Apri il file JSON con un editor di testo (es. Blocco Note, VS Code). <strong>Il suo contenuto è la tua chiave segreta.</strong></li>
+                    <li>Apri il file JSON con un editor di testo (es. VS Code). <strong>Il suo contenuto è la tua chiave segreta.</strong></li>
                 </ol>
             </div>
 
             <div>
                 <h3 className="font-bold text-lg text-white">Passo 3: Condividi i Tuoi Calendari</h3>
                 <ol className="list-decimal list-inside ml-4 text-sm space-y-1 mt-2">
-                    <li>Nel file JSON, trova il valore `client_email` (es. `nome-servizio@...iam.gserviceaccount.com`). Copialo.</li>
-                    <li>Vai su Google Calendar, trova il calendario che vuoi usare, clicca sui tre puntini &rarr; "Impostazioni e condivisione".</li>
-                    <li>Nella sezione "Condividi con persone o gruppi specifici", clicca "Aggiungi persone e gruppi".</li>
-                    <li>Incolla l'email del service account e imposta i permessi su <strong>"Apportare modifiche agli eventi"</strong>.</li>
-                    <li>Clicca "Invia". Ripeti per ogni calendario che vuoi usare.</li>
+                    <li>Nel file JSON, trova il valore <code>client_email</code> (es. <code>nome-servizio@...iam.gserviceaccount.com</code>). Copialo.</li>
+                    <li>Vai su Google Calendar, seleziona il calendario e scegli "Impostazioni e condivisione".</li>
+                    <li>Nella sezione "Condividi con persone o gruppi specifici", incolla l'email del service account e assegna "Apportare modifiche agli eventi".</li>
                 </ol>
             </div>
 
              <div>
                 <h3 className="font-bold text-lg text-white">Passo 4: Imposta la Chiave nel Server</h3>
-                 <p className="text-sm mt-2 mb-2">Esegui questo comando nel terminale (dalla cartella del tuo progetto), incollando l'<strong>intero contenuto</strong> del file JSON scaricato al posto di `...`.</p>
+                 <p className="text-sm mt-2 mb-2">Esegui questo comando nel terminale (dalla cartella del tuo progetto), incollando l'<strong>intero contenuto</strong> del file JSON scaricato al posto dei puntini:</p>
                 <div className="bg-gray-900 text-gray-300 font-mono text-sm p-4 rounded-lg overflow-x-auto">
                     <p>firebase functions:config:set googleapi.service_account_key='...'</p>
                 </div>
@@ -75,7 +74,7 @@ const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onR
             <button
                 onClick={onRetry}
                 disabled={isLoading}
-                className="w-full flex items-center justify-center gap-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-lg transition disabled:bg-emerald-800 disabled:cursor-wait"
+                className="w-full flex items-center justify-center gap-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-lg transition disabled:bg-emerald-800 disabled:cursor-not-allowed"
             >
                 {isLoading ? <Spinner /> : "Ho completato la configurazione, verifica"}
             </button>
@@ -91,6 +90,10 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     const [loadingStatus, setLoadingStatus] = useState(true);
     const [saving, setSaving] = useState(false);
     const [isServerConfigured, setIsServerConfigured] = useState<boolean | null>(null);
+
+    // OAuth UI state
+    const [connecting, setConnecting] = useState(false);
+    const [oauthMessage, setOauthMessage] = useState<string | null>(null);
 
     const checkStatus = useCallback(async () => {
         setLoadingStatus(true);
@@ -147,6 +150,18 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
         setSettings(initialSettings);
     }, [initialSettings]);
 
+    // Handle redirect after OAuth popup completes
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("google_connected") === "1") {
+            setOauthMessage("Google collegato con successo!");
+            // refresh state (small delay to allow backend propagation)
+            setTimeout(() => {
+                checkServer();
+                window.history.replaceState({}, "", window.location.pathname);
+            }, 600);
+        }
+    }, [checkServer]);
 
     const handleMappingChange = (locationId: string, calendarId: string) => {
         setSettings(prev => {
@@ -173,12 +188,67 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
         }
     };
 
+    // New: initiate OAuth flow (calls backend to get auth URL and opens popup)
+    const handleConnectWithGoogle = async () => {
+        try {
+            setConnecting(true);
+            setOauthMessage(null);
+            const auth = getAuth();
+            const user = auth.currentUser;
+            if (!user) {
+                setOauthMessage("Devi essere loggato come amministratore per connettere Google.");
+                setConnecting(false);
+                return;
+            }
+            const idToken = await user.getIdToken();
+            const resp = await fetch('/api/getGoogleAuthUrl', {
+                method: 'GET',
+                headers: {
+                    Authorization: `Bearer ${idToken}`,
+                },
+            });
+            if (!resp.ok) {
+                const txt = await resp.text();
+                throw new Error(txt || 'Errore ottenimento URL di autorizzazione');
+            }
+            const json = await resp.json();
+            const url = json?.data?.url;
+            if (!url) throw new Error('URL di autorizzazione non disponibile.');
+            // Open the Google consent popup
+            window.open(url, 'googleAuth', 'width=600,height=700');
+            setOauthMessage("Popup aperto. Completa il consenso Google nella nuova finestra.");
+        } catch (err: any) {
+            console.error('OAuth start error', err);
+            setOauthMessage(err.message || 'Errore durante l\'avvio del flusso OAuth.');
+        } finally {
+            setConnecting(false);
+        }
+    };
+
     if (loadingStatus) {
          return <div className="flex items-center justify-center p-10"><Spinner /> Caricamento stato integrazione...</div>;
     }
 
     if (isServerConfigured === false) {
-        return <ServerConfigurationError onRetry={checkServer} isLoading={loadingStatus} />;
+        // Server not configured -> still show the service-account guide but also offer OAuth connect button
+        return (
+            <>
+                <ServerConfigurationError onRetry={checkServer} isLoading={loadingStatus} />
+                <div className="mt-8">
+                    <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
+                        <h3 className="text-lg font-bold text-white mb-3">Connessione alternativa (Account Google)</h3>
+                        <p className="text-gray-400 mb-4">Se non vuoi usare un Service Account, puoi collegare manualmente un Account Google amministratore tramite OAuth (richiede consenso Google).</p>
+                        <div className="flex gap-3">
+                            <button onClick={handleConnectWithGoogle} disabled={connecting} className="bg-white text-black py-2 px-4 rounded-md border">
+                                {connecting ? 'Apro popup...' : 'Connetti con Google (Account)'}
+                            </button>
+                            <button onClick={checkServer} className="bg-gray-700 text-white py-2 px-4 rounded-md border">Verifica Configurazione Service Account</button>
+                        </div>
+                        {oauthMessage && <p className="mt-3 text-sm text-emerald-300">{oauthMessage}</p>}
+                    </div>
+                </div>
+            </>
+        );
     }
     
     return (
@@ -196,6 +266,15 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                     <div className="bg-red-900/50 border border-red-700 p-4 rounded-lg">
                         <p className="font-semibold text-red-300">Stato: Errore di Connessione</p>
                         <p className="text-white text-sm">{connectionStatus.error || "Impossibile connettersi a Google Calendar."}</p>
+
+                        {/* Button to allow OAuth connect even if service account isn't set */}
+                        <div className="mt-4 flex items-center gap-3">
+                            <button onClick={handleConnectWithGoogle} disabled={connecting} className="bg-white text-black py-2 px-4 rounded-md border">
+                                {connecting ? 'Apro popup...' : 'Connetti con Google (Account)'}
+                            </button>
+                            <button onClick={checkServer} className="bg-gray-700 text-white py-2 px-4 rounded-md border">Verifica Service Account</button>
+                        </div>
+                        {oauthMessage && <p className="mt-3 text-sm text-emerald-300">{oauthMessage}</p>}
                     </div>
                 )}
             </div>
@@ -229,7 +308,7 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                     ) : (
                         <div className="text-center text-gray-500 bg-gray-900/50 p-6 rounded-lg">
                             <p className="font-semibold">Nessun calendario trovato.</p>
-                            <p className="text-sm">Assicurati di aver condiviso almeno un calendario con l'email del service account:</p>
+                            <p className="text-sm">Assicurati di aver condiviso almeno un calendario con l'email del service account o che l'account Google collegato abbia calendari.</p>
                             <p className="font-mono text-emerald-400 text-sm mt-2">{connectionStatus.serviceAccountEmail}</p>
                         </div>
                     )}
@@ -237,7 +316,7 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             )}
             
             <div className="flex justify-end mt-8">
-                <button onClick={handleSave} disabled={saving || !connectionStatus.isConnected} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition flex items-center gap-2 disabled:bg-gray-600 disabled:cursor-not-allowed">
+                <button onClick={handleSave} disabled={saving || !connectionStatus.isConnected} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition flex items-center gap-2 disabled:bg-blue-400">
                     {saving ? <Spinner /> : 'Salva Integrazioni'}
                 </button>
             </div>
