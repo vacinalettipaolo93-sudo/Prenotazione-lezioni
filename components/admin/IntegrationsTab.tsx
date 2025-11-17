@@ -11,7 +11,7 @@ interface ServerConfigurationErrorProps {
     isLoading: boolean;
 }
 
-// Nuova schermata di errore/guida per la configurazione con Service Account
+// Guide UI for service account configuration
 const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onRetry, isLoading }) => (
     <div className="bg-amber-900/20 border-2 border-amber-600 text-amber-200 p-8 rounded-xl" role="alert">
         <h2 className="text-2xl font-bold mb-4 text-white">⚙️ Configurazione Richiesta: Collegamento Permanente</h2>
@@ -19,8 +19,7 @@ const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onR
             Per attivare l'integrazione con Google Calendar in modo stabile e permanente, è necessario configurare un <strong>"Service Account"</strong>.
             Si tratta di una procedura da eseguire una sola volta che garantirà la sincronizzazione automatica senza più bisogno di connessioni manuali.
         </p>
-        
-        <div className="space-y-6">
+        <div className="space-y-4">
             <div>
                 <h3 className="font-bold text-lg text-white">Passo 1: Crea il Service Account</h3>
                 <ol className="list-decimal list-inside ml-4 text-sm space-y-1 mt-2">
@@ -38,7 +37,6 @@ const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onR
                     <li>Trova il service account appena creato nella lista, clicca sui tre puntini a destra e seleziona <strong>"Gestisci chiavi"</strong>.</li>
                     <li>Clicca su "AGGIUNGI CHIAVE" → "Crea nuova chiave".</li>
                     <li>Scegli il formato <strong>JSON</strong> e clicca "CREA". Verrà scaricato un file sul tuo computer.</li>
-                    <li>Apri il file JSON con un editor di testo (es. VS Code). <strong>Il suo contenuto è la tua chiave segreta.</strong></li>
                 </ol>
             </div>
 
@@ -51,23 +49,13 @@ const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onR
                 </ol>
             </div>
 
-             <div>
+            <div>
                 <h3 className="font-bold text-lg text-white">Passo 4: Imposta la Chiave nel Server</h3>
-                 <p className="text-sm mt-2 mb-2">Esegui questo comando nel terminale (dalla cartella del tuo progetto), incollando l'<strong>intero contenuto</strong> del file JSON scaricato al posto dei puntini:</p>
+                <p className="text-sm mt-2 mb-2">Esegui questo comando nel terminale (dalla cartella del tuo progetto), incollando l'<strong>intero contenuto</strong> del file JSON scaricato al posto dei puntini:</p>
                 <div className="bg-gray-900 text-gray-300 font-mono text-sm p-4 rounded-lg overflow-x-auto">
                     <p>firebase functions:config:set googleapi.service_account_key='...'</p>
                 </div>
-                 <p className="text-xs text-amber-300 mt-1"><strong>Importante:</strong> Assicurati che il contenuto JSON sia racchiuso tra virgolette singole (`'`) come mostrato.</p>
             </div>
-            
-            <div>
-                 <h3 className="font-bold text-lg text-white">Passo 5: Fai il Deploy Finale</h3>
-                 <p className="text-sm mt-2 mb-2">Per applicare la nuova configurazione, esegui il deploy delle funzioni:</p>
-                 <div className="bg-gray-900 text-gray-300 font-mono text-sm p-4 rounded-lg">
-                    <p>firebase deploy --only functions</p>
-                </div>
-            </div>
-
         </div>
 
         <div className="mt-8 pt-6 border-t border-amber-500/30">
@@ -109,13 +97,12 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             if (status.isConnected && status.calendars) {
                 setCalendars(status.calendars);
             } else {
-                 // Se la connessione funziona ma non ci sono calendari, prova a caricarli separatamente
-                 if (status.isConnected) {
+                if (status.isConnected) {
                     const calList = await GCal.listCalendars();
                     setCalendars(calList);
-                 } else {
+                } else {
                     setCalendars([]);
-                 }
+                }
             }
         } catch (error: any) {
             console.error("Failed to check connection status:", error);
@@ -155,7 +142,6 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
         const params = new URLSearchParams(window.location.search);
         if (params.get("google_connected") === "1") {
             setOauthMessage("Google collegato con successo!");
-            // refresh state (small delay to allow backend propagation)
             setTimeout(() => {
                 checkServer();
                 window.history.replaceState({}, "", window.location.pathname);
@@ -214,7 +200,6 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
             const json = await resp.json();
             const url = json?.data?.url;
             if (!url) throw new Error('URL di autorizzazione non disponibile.');
-            // Open the Google consent popup
             window.open(url, 'googleAuth', 'width=600,height=700');
             setOauthMessage("Popup aperto. Completa il consenso Google nella nuova finestra.");
         } catch (err: any) {
@@ -230,7 +215,6 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     }
 
     if (isServerConfigured === false) {
-        // Server not configured -> still show the service-account guide but also offer OAuth connect button
         return (
             <>
                 <ServerConfigurationError onRetry={checkServer} isLoading={loadingStatus} />
@@ -267,7 +251,6 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                         <p className="font-semibold text-red-300">Stato: Errore di Connessione</p>
                         <p className="text-white text-sm">{connectionStatus.error || "Impossibile connettersi a Google Calendar."}</p>
 
-                        {/* Button to allow OAuth connect even if service account isn't set */}
                         <div className="mt-4 flex items-center gap-3">
                             <button onClick={handleConnectWithGoogle} disabled={connecting} className="bg-white text-black py-2 px-4 rounded-md border">
                                 {connecting ? 'Apro popup...' : 'Connetti con Google (Account)'}
