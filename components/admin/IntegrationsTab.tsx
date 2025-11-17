@@ -4,109 +4,116 @@ import { type AppSettings, type GoogleCalendar } from '../../types';
 import { type TabProps } from './types';
 import Spinner from '../Spinner';
 import { updateAppSettings } from '../../services/firebase';
+import { getAuth } from 'firebase/auth';
+import { FIREBASE_CONFIG } from '../../constants';
+
+const API_BASE_URL = `https://us-central1-${FIREBASE_CONFIG.projectId}.cloudfunctions.net/api`;
+
+interface ServerConfigurationErrorProps {
+    onRetry: () => void;
+    isLoading: boolean;
+}
+
+const ServerConfigurationError: React.FC<ServerConfigurationErrorProps> = ({ onRetry, isLoading }) => (
+    <div className="bg-amber-900/20 border-2 border-amber-600 text-amber-200 p-8 rounded-xl" role="alert">
+        <h2 className="text-2xl font-bold mb-4 text-white">⚙️ Configurazione Richiesta: Collegamento Permanente</h2>
+        <p className="mb-4">
+            Per attivare l'integrazione stabile è consigliato il Service Account, ma puoi usare anche OAuth per collegare un account Google.
+        </p>
+        <div className="mt-8 pt-6 border-t border-amber-500/30">
+            <button onClick={onRetry} disabled={isLoading} className="w-full bg-emerald-600 text-white py-3 rounded">
+                {isLoading ? <Spinner /> : "Ho completato la configurazione, verifica"}
+            </button>
+        </div>
+    </div>
+);
 
 const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSettingsChange }) => {
     const [settings, setSettings] = useState<AppSettings>(initialSettings);
-    const [connectionStatus, setConnectionStatus] = useState<{ isConnected: boolean; email: string | null }>({ isConnected: false, email: null });
+    const [connectionStatus, setConnectionStatus] = useState<{ isConnected: boolean; serviceAccountEmail: string | null; error?: string }>({ isConnected: false, serviceAccountEmail: null });
     const [calendars, setCalendars] = useState<GoogleCalendar[]>([]);
     const [loadingStatus, setLoadingStatus] = useState(true);
-    const [loadingCalendars, setLoadingCalendars] = useState(false);
     const [saving, setSaving] = useState(false);
-    const [apiError, setApiError] = useState<string | null>(null);
+    const [isServerConfigured, setIsServerConfigured] = useState<boolean | null>(null);
 
-    const checkStatus = useCallback(async (options: {isInitialCheck: boolean}) => {
-        if (!options.isInitialCheck) {
-             setLoadingStatus(true);
-        }
-        setApiError(null);
+    const [connecting, setConnecting] = useState(false);
+    const [oauthMessage, setOauthMessage] = useState<string | null>(null);
+
+    const checkStatus = useCallback(async () => {
+        setLoadingStatus(true);
         try {
-            const status = await GCal.checkGoogleConnection();
-            setConnectionStatus(status);
-            if (status.isConnected) {
-                setLoadingCalendars(true);
-                try {
-                    const calList = await GCal.listCalendars();
-                    setCalendars(calList);
-                } catch (error: any) {
-                    console.error("Failed to load calendars:", error);
-                    if (!options.isInitialCheck) {
-                       setApiError(`Impossibile caricare i calendari: ${error.message}`);
-                    }
-                    setCalendars([]);
-                } finally {
-                    setLoadingCalendars(false);
-                }
+            const status = await GCal.getGoogleConnectionStatus();
+            setConnectionStatus({
+                isConnected: status.isConnected,
+                serviceAccountEmail: status.serviceAccountEmail,
+                error: status.error,
+            });
+            if (status.isConnected && status.calendars) setCalendars(status.calendars);
+            else if (status.isConnected) {
+                const list = await GCal.listCalendars();
+                setCalendars(list);
             } else {
                 setCalendars([]);
             }
-        } catch (error: any) {
-            console.error("Failed to check connection status:", error);
-             // Mostra l'errore solo se non è il check iniziale e silenzioso
-            if (!options.isInitialCheck) {
-                 setApiError(`Errore di comunicazione con il server: ${error.message}.`);
-            }
-            setConnectionStatus({ isConnected: false, email: null });
+        } catch (err: any) {
+            console.error("checkStatus error", err);
+            setConnectionStatus({ isConnected: false, serviceAccountEmail: null, error: err.message || "Errore" });
         } finally {
             setLoadingStatus(false);
         }
     }, []);
 
-    useEffect(() => {
-        // Esegui il check iniziale in modo "silenzioso".
-        // Se fallisce, l'utente non vedrà un errore, ma solo lo stato "Non Connesso".
-        checkStatus({ isInitialCheck: true });
-    }, [checkStatus]);
-    
-    useEffect(() => {
-        setSettings(initialSettings);
-    }, [initialSettings]);
-
-    const handleConnect = async () => {
-        setApiError(null);
-
-        // 1. Apri il popup IMMEDIATAMENTE al click.
-        const popup = window.open('', 'google-auth', 'width=500,height=600');
-        
-        // 2. Controlla se il popup è stato bloccato.
-        if (!popup) {
-            setApiError("Il popup è stato bloccato dal browser. Abilita i popup per questo sito e riprova.");
-            return;
-        }
-        popup.document.write('<html><head><title>Connessione a Google</title><style>body { font-family: sans-serif; background-color: #111827; color: #d1d5db; display: flex; align-items: center; justify-content: center; height: 100%; margin: 0; } .container { text-align: center; } .spinner { border: 4px solid rgba(255, 255, 255, 0.2); width: 36px; height: 36px; border-radius: 50%; border-left-color: #10b981; animation: spin 1s ease infinite; margin: 0 auto 16px; } @keyframes spin { to { transform: rotate(360deg); } } </style></head><body><div class="container"><div class="spinner"></div><p>Attendi, stiamo generando il link di autenticazione...</p></div></body></html>');
-
+    const checkServer = useCallback(async () => {
+        setLoadingStatus(true);
         try {
-            // 3. Ora recupera l'URL di autenticazione dal backend.
-            const authUrl = await GCal.getGoogleAuthUrl();
-            
-            // 4. Reindirizza il popup all'URL corretto.
-            popup.location.href = authUrl;
-            
-            // 5. Imposta l'intervallo per controllare quando il popup viene chiuso.
-            const checkPopup = setInterval(() => {
-                if (popup.closed) {
-                    clearInterval(checkPopup);
-                    // Eseguiamo il check dello stato dopo la chiusura.
-                    checkStatus({ isInitialCheck: false });
-                }
-            }, 1000);
-
-        } catch (error: any) {
-            console.error("Google connection failed:", error);
-            setApiError(`Impossibile avviare la connessione con Google: ${error.message}`);
-            // Se c'è un errore, chiudi il popup.
-            popup.close();
+            const cfg = await GCal.checkServerConfiguration();
+            setIsServerConfigured(cfg.isConfigured);
+            if (cfg.isConfigured) await checkStatus();
+        } catch (err: any) {
+            console.error("checkServer error", err);
+            setIsServerConfigured(false);
+        } finally {
+            setLoadingStatus(false);
         }
-    };
+    }, [checkStatus]);
 
-    const handleDisconnect = async () => {
-        if (window.confirm("Sei sicuro di voler disconnettere il tuo account Google? Le prenotazioni non verranno più sincronizzate.")) {
-            setApiError(null);
-            try {
-                await GCal.disconnectGoogleAccount();
-                checkStatus({ isInitialCheck: false }); // Refresh status
-            } catch (error: any) {
-                setApiError(`Errore durante la disconnessione: ${error.message}`);
+    useEffect(() => { checkServer(); }, [checkServer]);
+    useEffect(() => { setSettings(initialSettings); }, [initialSettings]);
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("google_connected") === "1") {
+            setOauthMessage("Google collegato con successo!");
+            setTimeout(() => { checkServer(); window.history.replaceState({}, "", window.location.pathname); }, 600);
+        }
+    }, [checkServer]);
+
+    const handleConnectWithGoogle = async () => {
+        setConnecting(true);
+        setOauthMessage(null);
+        try {
+            const auth = getAuth();
+            const user = auth.currentUser;
+            if (!user) { setOauthMessage("Devi essere loggato come amministratore."); setConnecting(false); return; }
+            const idToken = await user.getIdToken();
+            const resp = await fetch(`${API_BASE_URL}/getGoogleAuthUrl`, {
+                method: "GET",
+                headers: { Authorization: `Bearer ${idToken}` }
+            });
+            if (!resp.ok) {
+                const txt = await resp.text();
+                throw new Error(txt || `HTTP ${resp.status}`);
             }
+            const json = await resp.json();
+            const url = json?.data?.url;
+            if (!url) throw new Error("URL non disponibile");
+            window.open(url, "googleAuth", "width=600,height=700");
+            setOauthMessage("Popup aperto, completa il consenso Google nella nuova finestra.");
+        } catch (err: any) {
+            console.error("OAuth start error", err);
+            setOauthMessage(err.message || "Errore avviando OAuth");
+        } finally {
+            setConnecting(false);
         }
     };
 
@@ -114,7 +121,6 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
         setSettings(prev => {
             if (!prev) return prev;
             const newMapping = { ...prev.locationCalendarMapping, [locationId]: calendarId };
-            // Also update the general list of selected calendars for fetching busy slots
             const selectedIds = new Set(Object.values(newMapping).filter(id => id && id !== 'none'));
             return { ...prev, locationCalendarMapping: newMapping, selectedCalendarIds: Array.from(selectedIds) };
         });
@@ -122,90 +128,87 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
 
     const handleSave = async () => {
         setSaving(true);
-        setApiError(null);
         try {
-            await updateAppSettings({
-                locationCalendarMapping: settings.locationCalendarMapping,
-                selectedCalendarIds: settings.selectedCalendarIds
-            });
+            await updateAppSettings({ locationCalendarMapping: settings.locationCalendarMapping, selectedCalendarIds: settings.selectedCalendarIds });
             onSettingsChange();
             alert("Impostazioni salvate!");
-        } catch(error: any) {
-            setApiError(`Errore durante il salvataggio: ${error.message}`);
-        } finally {
-            setSaving(false);
-        }
+        } catch (err: any) {
+            console.error(err);
+            setConnectionStatus(prev => ({ ...prev, error: err.message }));
+        } finally { setSaving(false); }
     };
-    
+
+    if (loadingStatus) return <div className="flex items-center justify-center p-10"><Spinner /> Caricamento...</div>;
+    if (isServerConfigured === false) {
+        return (
+            <>
+                <ServerConfigurationError onRetry={checkServer} isLoading={loadingStatus} />
+                <div className="mt-8">
+                    <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
+                        <h3 className="text-lg font-bold text-white mb-3">Connessione alternativa (Account Google)</h3>
+                        <p className="text-gray-400 mb-4">Puoi collegare manualmente un account Google amministratore tramite OAuth.</p>
+                        <div className="flex gap-3">
+                            <button onClick={handleConnectWithGoogle} disabled={connecting} className="bg-white text-black py-2 px-4 rounded"> {connecting ? 'Apro popup...' : 'Connetti con Google (Account)'} </button>
+                            <button onClick={checkServer} className="bg-gray-700 text-white py-2 px-4 rounded">Verifica Service Account</button>
+                        </div>
+                        {oauthMessage && <p className="mt-3 text-sm text-emerald-300">{oauthMessage}</p>}
+                    </div>
+                </div>
+            </>
+        );
+    }
+
     return (
         <div className="space-y-12">
             <div className="bg-gray-800 p-8 rounded-xl border border-gray-700">
                 <h2 className="text-2xl font-bold mb-2 text-white">Integrazione Google Calendar</h2>
-                <p className="text-gray-400 mb-6">Collega il tuo account Google per sincronizzare automaticamente le prenotazioni con il tuo calendario.</p>
+                <p className="text-gray-400 mb-6">Collega i tuoi calendari per sincronizzare automaticamente le prenotazioni.</p>
 
-                {loadingStatus ? (
-                    <div className="flex items-center justify-center p-4"><Spinner /></div>
-                ) : connectionStatus.isConnected ? (
-                    <div className="bg-green-900/50 border border-green-700 p-4 rounded-lg flex items-center justify-between">
-                        <div>
-                            <p className="font-semibold text-green-300">Connesso come:</p>
-                            <p className="text-white">{connectionStatus.email}</p>
-                        </div>
-                        <button onClick={handleDisconnect} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg">Disconnetti</button>
+                {connectionStatus.isConnected ? (
+                    <div className="bg-green-900/50 border border-green-700 p-4 rounded-lg">
+                        <p className="font-semibold text-green-300">Stato: Connesso</p>
+                        <p className="text-white text-sm">Integrazione attiva: <strong className="font-mono">{connectionStatus.serviceAccountEmail}</strong></p>
                     </div>
                 ) : (
-                    <div className="bg-gray-900/50 border border-gray-700 p-4 rounded-lg flex items-center justify-between">
-                        <div>
-                            <p className="font-semibold text-yellow-300">Stato: Non Connesso</p>
-                            <p className="text-gray-300">Collega il tuo account per iniziare.</p>
+                    <div className="bg-red-900/50 border border-red-700 p-4 rounded-lg">
+                        <p className="font-semibold text-red-300">Stato: Errore di Connessione</p>
+                        <p className="text-white text-sm">{connectionStatus.error || "Impossibile connettersi a Google Calendar."}</p>
+                        <div className="mt-4 flex items-center gap-3">
+                            <button onClick={handleConnectWithGoogle} disabled={connecting} className="bg-white text-black py-2 px-4 rounded"> {connecting ? 'Apro popup...' : 'Connetti con Google (Account)'} </button>
+                            <button onClick={checkServer} className="bg-gray-700 text-white py-2 px-4 rounded">Verifica Service Account</button>
                         </div>
-                        <button onClick={handleConnect} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">Connetti a Google</button>
-                    </div>
-                )}
-
-                {apiError && (
-                    <div className="mt-4 bg-red-900/50 border border-red-700 text-red-300 p-3 rounded-lg text-sm">
-                        <strong>Errore:</strong> {apiError}
+                        {oauthMessage && <p className="mt-3 text-sm text-emerald-300">{oauthMessage}</p>}
                     </div>
                 )}
             </div>
 
             {connectionStatus.isConnected && (
                 <div className="bg-gray-800 p-8 rounded-xl border border-gray-700">
-                    <h2 className="text-2xl font-bold mb-6 text-white">Mappatura Calendari per Sede</h2>
-                    <p className="text-gray-400 mb-6">Associa ogni sede a un calendario Google specifico. Le nuove prenotazioni per una sede verranno aggiunte al calendario corrispondente.</p>
-                    
-                    {loadingCalendars ? (
-                         <div className="flex items-center justify-center p-4"><Spinner /></div>
-                    ) : calendars.length > 0 ? (
+                    <h2 className="text-2xl font-bold mb-2 text-white">Mappatura Calendari per Sede</h2>
+                    <p className="text-gray-400 mb-6">Associa ogni sede a un calendario Google.</p>
+                    {calendars.length > 0 ? (
                         <div className="space-y-4">
                             {(settings.locations || []).map(loc => (
                                 <div key={loc.id} className="grid grid-cols-1 md:grid-cols-3 items-center gap-4">
                                     <label htmlFor={`cal-select-${loc.id}`} className="font-semibold text-gray-200">{loc.name}</label>
-                                    <select 
-                                        id={`cal-select-${loc.id}`}
-                                        value={settings.locationCalendarMapping?.[loc.id] || 'none'}
-                                        onChange={e => handleMappingChange(loc.id, e.target.value)}
-                                        className="md:col-span-2 w-full p-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
-                                    >
+                                    <select id={`cal-select-${loc.id}`} value={settings.locationCalendarMapping?.[loc.id] || 'none'} onChange={e => handleMappingChange(loc.id, e.target.value)} className="md:col-span-2 w-full p-2 bg-gray-700 border border-gray-600 rounded text-white">
                                         <option value="none">Nessun calendario selezionato</option>
-                                        {calendars.map(cal => (
-                                            <option key={cal.id} value={cal.id}>
-                                                {cal.summary} {cal.primary ? '(Principale)' : ''}
-                                            </option>
-                                        ))}
+                                        {calendars.map(cal => <option key={cal.id} value={cal.id}>{cal.summary} {cal.primary ? '(Principale)' : ''}</option>)}
                                     </select>
                                 </div>
                             ))}
                         </div>
                     ) : (
-                        <p className="text-center text-gray-500">Nessun calendario trovato o impossibile caricarli.</p>
+                        <div className="text-center text-gray-500 bg-gray-900/50 p-6 rounded-lg">
+                            <p className="font-semibold">Nessun calendario trovato.</p>
+                            <p className="text-sm">Condividi i tuoi calendari con l'account configurato o collega un account tramite OAuth.</p>
+                        </div>
                     )}
                 </div>
             )}
-            
+
             <div className="flex justify-end mt-8">
-                <button onClick={handleSave} disabled={saving || !connectionStatus.isConnected} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg transition flex items-center gap-2 disabled:bg-gray-600 disabled:cursor-not-allowed">
+                <button onClick={handleSave} disabled={saving || !connectionStatus.isConnected} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded">
                     {saving ? <Spinner /> : 'Salva Integrazioni'}
                 </button>
             </div>
