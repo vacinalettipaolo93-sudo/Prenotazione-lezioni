@@ -22,4 +22,5 @@ functions/.env.*
 
 # File specifici del sistema operativo
 .DS_Store
-Thumbs.db
+Thumbs.db.DS_Store echo service-account.json echo fc-config.json git add .gitignore
+.DS_Store echo service-account.json echo fc-config.json echo /*.local echo fronted/
