@@ -5,6 +5,7 @@ import { type TabProps } from './types';
 import Spinner from '../Spinner';
 import { updateAppSettings } from '../../services/firebase';
 import { getAuth } from 'firebase/auth';
+import { FIREBASE_CONFIG } from '../../constants';
 
 interface ServerConfigurationErrorProps {
     onRetry: () => void;
@@ -82,6 +83,9 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
     // OAuth UI state
     const [connecting, setConnecting] = useState(false);
     const [oauthMessage, setOauthMessage] = useState<string | null>(null);
+
+    // Build API URL to your deployed Cloud Function
+    const API_BASE_URL = `https://us-central1-${FIREBASE_CONFIG.projectId}.cloudfunctions.net/api`;
 
     const checkStatus = useCallback(async () => {
         setLoadingStatus(true);
@@ -187,12 +191,15 @@ const IntegrationsTab: React.FC<TabProps> = ({ settings: initialSettings, onSett
                 return;
             }
             const idToken = await user.getIdToken();
-            const resp = await fetch('/api/getGoogleAuthUrl', {
+
+            // Use the deployed Cloud Function URL (not a relative /api route) to avoid 404 on Vercel
+            const resp = await fetch(`${API_BASE_URL}/getGoogleAuthUrl`, {
                 method: 'GET',
                 headers: {
                     Authorization: `Bearer ${idToken}`,
                 },
             });
+
             if (!resp.ok) {
                 const txt = await resp.text();
                 throw new Error(txt || 'Errore ottenimento URL di autorizzazione');
