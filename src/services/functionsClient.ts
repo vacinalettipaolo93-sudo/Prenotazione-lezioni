@@ -24,7 +24,6 @@ async function postJSON<T = any>(path: string, body: any, opts: { idToken?: stri
   try { json = text ? JSON.parse(text) : {}; } catch (e) { json = { raw: text }; }
 
   if (!resp.ok) {
-    // Formatta errore con informazioni utili
     const msg = json?.message || json?.error || `HTTP ${resp.status}`;
     const err: any = new Error(`Chiamata API a ${path} fallita: ${msg}`);
     err.status = resp.status;
