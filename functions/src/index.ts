@@ -1,395 +1,325 @@
 /**
- * This file serves as the entry point for Firebase Functions.
- * It exports 'api', the new Express server, replacing the previous
- * architecture of multiple individual Cloud Functions.
+ * functions/src/index.ts
  *
- * All application logic is now contained within 'functions/src/index.ts'.
+ * OAuth + helper endpoints for Google Calendar integration.
+ *
+ * Routes added/kept:
+ *  - GET  /getGoogleAuthUrl            (requires Firebase ID token) -> { data: { url, state } }
+ *  - GET  /auth/google/callback        (called by Google, uses state -> adminUid mapping)
+ *  - POST /listGoogleCalendars         (requires Firebase ID token)
+ *  - POST /checkServerConfiguration    (open)
+ *  - POST /checkServerSetup            (alias for backward compatibility)
+ *  - POST /getConnectionStatus         (requires Firebase ID token)  <-- NEW (frontend expects this)
+ *
+ * Notes:
+ * - Supports functions.config().google.* and functions.config().googleapi.* keys for backward compatibility.
+ * - State mapping saved to collection 'oauth_states' and consumed by callback.
+ * - Tokens saved to collection 'integrations' under id `google_<adminUid>`.
  */
-import * as functions from "firebase-functions";
-import * as admin from "firebase-admin";
-// FIX: Changed express import to the default import syntax and imported Request, Response, and NextFunction types. This resolves type errors with express request and response objects.
-import express, {Request, Response, NextFunction} from "express";
-import cors from "cors";
-import {google} from "googleapis";
-import {type DecodedIdToken} from "firebase-admin/auth";
 
-// --- INIZIALIZZAZIONE ---
+import * as functions from "firebase-functions/v1";
+import * as admin from "firebase-admin";
+import express, { Request, Response, NextFunction } from "express";
+import cors from "cors";
+import { google } from "googleapis";
+import crypto from "crypto";
+
 admin.initializeApp();
 const db = admin.firestore();
-// FIX: Removed explicit typing on `app` and used direct `express()` call. Type is correctly inferred.
 const app = express();
 
-
-// --- CONFIGURAZIONE ---
-
-// Configurazione CORS più restrittiva e sicura.
 const allowedOrigins = [
-    "https://gestionale-prenotazioni-lezio.web.app", // Dominio di produzione Firebase
-    "https://gestionale-prenotazioni-lezio.firebaseapp.com", // Altro dominio Firebase
-    "https://gestionale-prenotazioni-lezioni.vercel.app", // Dominio di produzione Vercel
+  "https://gestionale-prenotazioni-lezioni.vercel.app",
+  "https://gestionale-prenotazioni-lezio.web.app",
+  "https://gestionale-prenotazioni-lezio.firebaseapp.com",
 ];
 
-// Regex per autorizzare i domini di anteprima di Vercel, es:
-// https://gestionale-prenotazioni-lezioni-git-main-tuonome.vercel.app
-const vercelPreviewRegex = /^https:\/\/gestionale-prenotazioni-lezioni-.*\.vercel\.app$/;
-
 app.use(cors({
-    origin: (origin, callback) => {
-        // Permetti richieste senza 'origin' (es. da Postman o test server-to-server)
-        if (!origin) {
-            return callback(null, true);
-        }
-        
-        // Controlla se l'origine è nella lista fissa o corrisponde al pattern di Vercel
-        if (allowedOrigins.includes(origin) || vercelPreviewRegex.test(origin)) {
-            callback(null, true);
-        } else {
-            functions.logger.warn("CORS Warning: Origin not allowed", {origin});
-            callback(new Error("Not allowed by CORS"));
-        }
-    },
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
 }));
 
-// FIX: Corrected express app type inference allows app.use to be called correctly.
 app.use(express.json());
 
-interface FunctionsConfig {
-    googleapi?: {
-        client_id?: string;
-        client_secret?: string;
-        redirect_uri?: string;
-    };
-    admin?: {
-        uid?: string;
-    };
-}
+// Config / helpers
+const cfg = functions.config() as any;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const functionsConfig: FunctionsConfig = (functions as any).config();
-const GOOGLE_CLIENT_ID = functionsConfig.googleapi?.client_id;
-const GOOGLE_CLIENT_SECRET = functionsConfig.googleapi?.client_secret;
-const GOOGLE_REDIRECT_URI = functionsConfig.googleapi?.redirect_uri;
-const ADMIN_UID = functionsConfig.admin?.uid;
+// Backwards-compatible reading of config keys:
+const SERVICE_ACCOUNT_KEY_JSON = cfg.googleapi?.service_account_key || cfg.google?.service_account_key || null;
+const OAUTH_CLIENT_ID = cfg.google?.oauth_client_id || cfg.googleapi?.client_id || cfg.googleapi?.client_id || cfg.google?.client_id || "";
+const OAUTH_CLIENT_SECRET = cfg.google?.oauth_client_secret || cfg.googleapi?.client_secret || cfg.google?.client_secret || cfg.googleapi?.client_secret || "";
+const PROJECT_ID = process.env.GCP_PROJECT || cfg?.project?.projectId || (cfg.googleapi && cfg.googleapi.project_id) || "";
 
-const oAuth2Client = GOOGLE_CLIENT_ID ? new google.auth.OAuth2(
-    GOOGLE_CLIENT_ID,
-    GOOGLE_CLIENT_SECRET,
-    GOOGLE_REDIRECT_URI,
-) : null;
+const OAUTH_REDIRECT = `https://us-central1-${PROJECT_ID}.cloudfunctions.net/api/auth/google/callback`;
 
-// --- MIDDLEWARE ---
+// TTL for state entries (ms)
+const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-const authenticateAdmin = async (
-    // FIX: Use correct express types for request, response, and next function.
-    req: Request,
-    res: Response,
-    next: NextFunction,
-) => {
-    const {authorization} = req.headers;
-    if (!authorization || !authorization.startsWith("Bearer ")) {
-        return res.status(401).send({error: {message: "Unauthorized: No token provided."}});
+// Middleware to verify Firebase ID token (used for endpoints initiated by the frontend)
+const verifyFirebaseTokenMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const authHeader = (req.headers.authorization || "") as string;
+    if (!authHeader.startsWith("Bearer ")) {
+      res.status(401).json({ error: { message: "Missing token" } });
+      return;
     }
-
-    const token = authorization.split("Bearer ")[1];
-    if (!token) {
-        return res.status(401).send({error: {message: "Unauthorized: Malformed token."}});
+    const idToken = authHeader.split("Bearer ")[1];
+    if (!idToken) {
+      res.status(401).json({ error: { message: "Malformed token" } });
+      return;
     }
-
-    try {
-        const decodedToken: DecodedIdToken = await admin.auth().verifyIdToken(token);
-        res.locals.user = decodedToken;
-        return next();
-    } catch (err) {
-        console.error("Error while verifying Firebase ID token:", err);
-        return res.status(403).send({error: {message: "Unauthorized: Invalid token."}});
-    }
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    (req as any).authUser = decoded;
+    next();
+    return;
+  } catch (err) {
+    console.error("verify token error", err);
+    res.status(401).json({ error: { message: "Unauthorized" } });
+    return;
+  }
 };
 
-const checkServerConfig = (
-    // FIX: Use correct express types for request, response, and next function.
-    req: Request,
-    res: Response,
-    next: NextFunction,
-) => {
-    if (!oAuth2Client || !ADMIN_UID) {
-        console.error(
-            "CRITICAL ERROR: Google API config or Admin UID is not set. " +
-            "Run `firebase functions:config:set`.",
-        );
-        return res.status(503).json({error: {message: "Server is not configured for Google requests."}});
-    }
-    return next();
+const getOAuth2Client = (redirect?: string) => {
+  const redirectUri = redirect || OAUTH_REDIRECT;
+  if (!OAUTH_CLIENT_ID || !OAUTH_CLIENT_SECRET) return null;
+  return new google.auth.OAuth2(OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, redirectUri);
 };
 
-
-// --- HELPERS ---
-const getAdminSettingsRef = (uid: string) => db.collection("settings").doc(uid);
-
-const setGoogleAuthCredentials = async (adminUid: string) => {
-    if (!oAuth2Client) return false;
-    const settingsDoc = await getAdminSettingsRef(adminUid).get();
-    const settings = settingsDoc.data();
-    if (settings && settings.googleRefreshToken) {
-        oAuth2Client.setCredentials({
-            refresh_token: settings.googleRefreshToken,
-        });
-        return true;
-    }
-    return false;
+const saveGoogleTokensForAdmin = async (adminUid: string, tokens: any) => {
+  await db.collection("integrations").doc(`google_${adminUid}`).set({
+    tokens,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    owner: adminUid,
+  }, { merge: true });
 };
 
-// --- ENDPOINTS ---
-app.use(checkServerConfig);
+const getStoredGoogleTokens = async (adminUid: string) => {
+  const doc = await db.collection("integrations").doc(`google_${adminUid}`).get();
+  if (!doc.exists) return null;
+  return doc.data()?.tokens || null;
+};
 
-app.post(
-    "/getAuthURL",
-    authenticateAdmin,
-    // FIX: Use correct express types for request and response.
-    (req: Request, res: Response) => {
-        try {
-            functions.logger.info("Request received for /getAuthURL", {uid: res.locals.user.uid});
+const getAuthClientFromStored = async (adminUid: string) => {
+  const tokens = await getStoredGoogleTokens(adminUid);
+  if (!tokens) return null;
+  const client = getOAuth2Client();
+  if (!client) return null;
+  client.setCredentials(tokens);
+  return client;
+};
 
-            if (!oAuth2Client) {
-                functions.logger.error("oAuth2Client is not configured. Check function configuration.", {
-                    hasClientId: !!GOOGLE_CLIENT_ID,
-                });
-                return res.status(503).json({error: {message: "Il server non è configurato correttamente per le API Google."}});
-            }
+// Create a random state token
+const generateState = (): string => {
+  return crypto.randomBytes(20).toString("hex");
+};
 
-            const adminUid = res.locals.user.uid;
-            const authUrl = oAuth2Client.generateAuthUrl({
-                access_type: "offline",
-                prompt: "consent",
-                scope: ["https://www.googleapis.com/auth/calendar"],
-                state: adminUid,
-            });
+// Save state -> adminUid mapping in Firestore (short lived)
+const saveStateMapping = async (state: string, adminUid: string) => {
+  const docRef = db.collection("oauth_states").doc(state);
+  await docRef.set({
+    adminUid,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+};
 
-            functions.logger.info("Google Auth URL generated successfully.", {uid: adminUid});
-            return res.json({data: {url: authUrl}});
-        } catch (error) {
-            const err = error as Error;
-            functions.logger.error("An unexpected error occurred in /getAuthURL", {
-                errorMessage: err.message,
-                errorStack: err.stack,
-            });
-            return res.status(500).json({error: {message: `Errore interno del server: ${err.message}`}});
-        }
-    },
-);
+// Get and delete state mapping atomically, and check TTL
+const consumeStateMapping = async (state: string) => {
+  const docRef = db.collection("oauth_states").doc(state);
+  const snap = await docRef.get();
+  if (!snap.exists) return null;
+  const data = snap.data() as any;
+  if (data?.createdAt && typeof data.createdAt.toMillis === "function") {
+    const createdMs = data.createdAt.toMillis();
+    const nowMs = Date.now();
+    if (nowMs - createdMs > STATE_TTL_MS) {
+      // expired
+      await docRef.delete().catch(() => {});
+      return null;
+    }
+  }
+  await docRef.delete().catch(() => {});
+  return data;
+};
 
+// ---------- ROUTES ---------- //
 
-app.get(
-    "/oauthcallback",
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
-        if (!oAuth2Client) {
-            return res.status(503).json({error: {message: "Server not configured."}});
-        }
-        const {code, state} = req.query;
-        const adminUid = state as string;
+// GET /getGoogleAuthUrl -> returns { data: { url, state } }
+// Requires Firebase ID token
+app.get("/getGoogleAuthUrl", verifyFirebaseTokenMiddleware, async (req: Request, res: Response) => {
+  try {
+    const oauth2Client = getOAuth2Client();
+    if (!oauth2Client) return res.status(500).json({ error: { message: "OAuth client not configured on server." } });
+    const scope = ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/calendar.events'];
 
-        if (!code) return res.status(400).send("Error: Missing authorization code.");
-        if (!adminUid) return res.status(400).send("Error: Missing admin UID in state.");
+    const adminUid = (req as any).authUser?.uid;
+    if (!adminUid) return res.status(401).json({ error: { message: "Unauthorized: admin uid missing" } });
 
-        try {
-            const {tokens} = await oAuth2Client.getToken(code as string);
-            const {refresh_token: refreshToken, access_token: accessToken} = tokens;
+    const state = generateState();
+    await saveStateMapping(state, adminUid);
 
-            if (!refreshToken) {
-                throw new Error("Refresh token not received. Please re-authorize.");
-            }
-
-            oAuth2Client.setCredentials({access_token: accessToken});
-            const people = google.people({version: "v1", auth: oAuth2Client});
-            const profile = await people.people.get({
-                resourceName: "people/me",
-                personFields: "emailAddresses",
-            });
-            const email = profile.data.emailAddresses?.[0]?.value || null;
-
-            await getAdminSettingsRef(adminUid).set({
-                googleRefreshToken: refreshToken,
-                googleAccountEmail: email,
-            }, {merge: true});
-
-            return res.send("<script>window.close();</script>");
-        } catch (error) {
-            const err = error as Error;
-            console.error("Error during OAuth code exchange:", err);
-            return res.status(500).send(`Google authentication error: ${err.message}`);
-        }
+    const url = oauth2Client.generateAuthUrl({
+      access_type: 'offline',
+      scope,
+      prompt: 'consent',
+      state,
     });
+    return res.json({ data: { url, state } });
+  } catch (err) {
+    console.error("getGoogleAuthUrl error", err);
+    return res.status(500).json({ error: { message: "Failed to generate url" }});
+  }
+});
 
-app.post(
-    "/checkTokenStatus",
-    authenticateAdmin,
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
-        try {
-            const settingsDoc = await getAdminSettingsRef(res.locals.user.uid).get();
-            const settings = settingsDoc.data();
-            if (settings?.googleRefreshToken && settings?.googleAccountEmail) {
-                return res.json({data: {isConnected: true, email: settings.googleAccountEmail}});
-            } else {
-                return res.json({data: {isConnected: false, email: null}});
-            }
-        } catch (error) {
-            console.error("Error checking token status:", error);
-            return res.status(500).json({error: {message: "Internal server error."}});
+// GET /auth/google/callback?code=...&state=...
+// Called by Google (no Authorization header required)
+app.get("/auth/google/callback", async (req: Request, res: Response) => {
+  try {
+    const code = req.query.code as string | undefined;
+    const state = req.query.state as string | undefined;
+    if (!code || !state) {
+      res.status(400).send("Missing code or state");
+      return;
+    }
+    const mapping = await consumeStateMapping(state);
+    if (!mapping) {
+      res.status(400).send("Invalid or expired state");
+      return;
+    }
+    const adminUid = mapping.adminUid as string;
+    if (!adminUid) {
+      res.status(400).send("Invalid state mapping");
+      return;
+    }
+    const oauth2Client = getOAuth2Client();
+    if (!oauth2Client) {
+      res.status(500).send("OAuth client not configured");
+      return;
+    }
+    const r = await oauth2Client.getToken(code);
+    const tokens = r.tokens;
+    if (!tokens) {
+      res.status(500).send("Failed to obtain tokens");
+      return;
+    }
+    await saveGoogleTokensForAdmin(adminUid, tokens);
+    const frontendUrl = "https://gestionale-prenotazioni-lezioni.vercel.app/integrations?google_connected=1";
+    return res.redirect(frontendUrl);
+  } catch (err) {
+    console.error("auth callback error", err);
+    return res.status(500).send("Error exchanging code for tokens");
+  }
+});
+
+// POST /listGoogleCalendars -> returns calendar list (requires Firebase ID token)
+app.post("/listGoogleCalendars", verifyFirebaseTokenMiddleware, async (req: Request, res: Response) => {
+  try {
+    const adminUid = (req as any).authUser?.uid || null;
+    if (!adminUid) return res.status(401).json({ error: { message: "Unauthorized" } });
+
+    let calendarClient;
+    const authClient = await getAuthClientFromStored(adminUid);
+    if (authClient) {
+      calendarClient = google.calendar({ version: "v3", auth: authClient });
+    } else if (SERVICE_ACCOUNT_KEY_JSON) {
+      const creds = typeof SERVICE_ACCOUNT_KEY_JSON === "string" ? JSON.parse(SERVICE_ACCOUNT_KEY_JSON) : SERVICE_ACCOUNT_KEY_JSON;
+      const jwt = new google.auth.JWT(creds.client_email, undefined, creds.private_key, ['https://www.googleapis.com/auth/calendar']);
+      calendarClient = google.calendar({ version: "v3", auth: jwt });
+    } else {
+      return res.status(503).json({ error: { message: "No Google auth available" } });
+    }
+    const list = await calendarClient.calendarList.list();
+    return res.json({ data: list.data.items || [] });
+  } catch (err) {
+    console.error("listGoogleCalendars err", err);
+    return res.status(500).json({ error: { message: "Could not list calendars" } });
+  }
+});
+
+// POST /checkServerConfiguration -> { isConfigured: boolean, serviceAccountEmail?: string }
+app.post("/checkServerConfiguration", async (req: Request, res: Response) => {
+  try {
+    if (SERVICE_ACCOUNT_KEY_JSON) {
+      const creds = typeof SERVICE_ACCOUNT_KEY_JSON === "string" ? JSON.parse(SERVICE_ACCOUNT_KEY_JSON) : SERVICE_ACCOUNT_KEY_JSON;
+      return res.json({ data: { isConfigured: true, serviceAccountEmail: creds.client_email }});
+    }
+    return res.json({ data: { isConfigured: false, serviceAccountEmail: null }});
+  } catch (err) {
+    console.error("checkServerConfiguration error", err);
+    return res.json({ data: { isConfigured: false }});
+  }
+});
+
+// ALIAS for older frontend: POST /checkServerSetup
+app.post("/checkServerSetup", async (req: Request, res: Response) => {
+  try {
+    if (SERVICE_ACCOUNT_KEY_JSON) {
+      const creds = typeof SERVICE_ACCOUNT_KEY_JSON === "string" ? JSON.parse(SERVICE_ACCOUNT_KEY_JSON) : SERVICE_ACCOUNT_KEY_JSON;
+      return res.json({ data: { isConfigured: true, serviceAccountEmail: creds.client_email }});
+    }
+    return res.json({ data: { isConfigured: false, serviceAccountEmail: null }});
+  } catch (err) {
+    console.error("checkServerSetup error", err);
+    return res.json({ data: { isConfigured: false }});
+  }
+});
+
+// NEW: POST /getConnectionStatus -> returns { isConnected, serviceAccountEmail, calendars? }
+// Requires Firebase ID token
+app.post("/getConnectionStatus", verifyFirebaseTokenMiddleware, async (req: Request, res: Response) => {
+  try {
+    const adminUid = (req as any).authUser?.uid;
+    if (!adminUid) return res.status(401).json({ error: { message: "Unauthorized" } });
+
+    let isConnected = false;
+    let serviceAccountEmail: string | null = null;
+    let calendars: any[] = [];
+
+    // If service account present, treat as connected and try to list calendars
+    if (SERVICE_ACCOUNT_KEY_JSON) {
+      isConnected = true;
+      const creds = typeof SERVICE_ACCOUNT_KEY_JSON === "string" ? JSON.parse(SERVICE_ACCOUNT_KEY_JSON) : SERVICE_ACCOUNT_KEY_JSON;
+      serviceAccountEmail = creds.client_email;
+      try {
+        const jwt = new google.auth.JWT(creds.client_email, undefined, creds.private_key, ['https://www.googleapis.com/auth/calendar']);
+        const calendar = google.calendar({ version: "v3", auth: jwt });
+        const list = await calendar.calendarList.list();
+        calendars = list.data.items || [];
+      } catch (err) {
+        console.error("list with service account failed", err);
+        // keep isConnected true but no calendars
+      }
+      return res.json({ data: { isConnected, serviceAccountEmail, calendars }});
+    }
+
+    // Otherwise check for stored user tokens
+    const tokens = await getStoredGoogleTokens(adminUid);
+    if (tokens) {
+      isConnected = true;
+      try {
+        const client = getOAuth2Client();
+        if (client) {
+          client.setCredentials(tokens);
+          const calendar = google.calendar({ version: "v3", auth: client });
+          const list = await calendar.calendarList.list();
+          calendars = list.data.items || [];
         }
-    },
-);
+      } catch (err) {
+        console.error("list with user tokens failed", err);
+      }
+    }
 
-app.post(
-    "/disconnectGoogleAccount",
-    authenticateAdmin,
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
-        try {
-            await getAdminSettingsRef(res.locals.user.uid).update({
-                googleRefreshToken: admin.firestore.FieldValue.delete(),
-                googleAccountEmail: admin.firestore.FieldValue.delete(),
-            });
-            return res.json({data: {success: true}});
-        } catch (error) {
-            console.error("Error during disconnect:", error);
-            return res.status(500).json({error: {message: "Internal server error."}});
-        }
-    },
-);
+    return res.json({ data: { isConnected, serviceAccountEmail, calendars }});
+  } catch (err) {
+    console.error("getConnectionStatus error", err);
+    return res.status(500).json({ error: { message: "Could not determine connection status" }});
+  }
+});
 
-app.post(
-    "/listGoogleCalendars",
-    authenticateAdmin,
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
-        if (!oAuth2Client) {
-            return res.status(503).json({error: {message: "Server not configured."}});
-        }
-        try {
-            const hasCreds = await setGoogleAuthCredentials(res.locals.user.uid);
-            if (!hasCreds) {
-                return res.status(400).json({error: {message: "Google account not connected."}});
-            }
-            const calendar = google.calendar({version: "v3", auth: oAuth2Client});
-            const calendarList = await calendar.calendarList.list();
-            return res.json({data: calendarList.data.items});
-        } catch (error) {
-            console.error("Error listing calendars:", error);
-            return res.status(500).json({error: {message: "Could not retrieve calendar list."}});
-        }
-    },
-);
-
-// --- ENDPOINTS PUBBLICI ---
-
-app.post(
-    "/getBusySlotsOnBehalfOfAdmin",
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
-        const {timeMin, timeMax, calendarIds} = req.body.data;
-
-        if (!ADMIN_UID || !oAuth2Client) {
-            return res.status(503).json({error: {message: "Server not configured."}});
-        }
-
-        try {
-            const hasCreds = await setGoogleAuthCredentials(ADMIN_UID);
-            if (!hasCreds) {
-                return res.status(503).json({error: {message: "Admin Google account not connected on server."}});
-            }
-            const calendar = google.calendar({version: "v3", auth: oAuth2Client});
-            const result = await calendar.freebusy.query({
-                requestBody: {
-                    timeMin,
-                    timeMax,
-                    timeZone: "Europe/Rome",
-                    items: calendarIds.map((id: string) => ({id})),
-                },
-            });
-
-            const busyIntervals = [];
-            const calendarsData = result.data.calendars || {};
-            for (const calId in calendarsData) {
-                if (calendarsData[calId].busy) {
-                    busyIntervals.push(...calendarsData[calId].busy);
-                }
-            }
-            return res.json({data: busyIntervals});
-        } catch (error) {
-            console.error("Error getting busy slots:", error);
-            return res.status(500).json({error: {message: "Could not retrieve busy slots."}});
-        }
-    },
-);
-
-app.post(
-    "/createEventOnBehalfOfAdmin",
-    // FIX: Use correct express types for request and response.
-    async (req: Request, res: Response) => {
-        const {
-            clientName, clientEmail, clientPhone, sport, lessonType,
-            duration, location, startTime, endTime, message, targetCalendarId,
-        } = req.body.data;
-
-        // FIX: Corrected typo in variable name from oAuth2Clien-t to oAuth2Client
-        if (!ADMIN_UID || !oAuth2Client) {
-            return res.status(503).json({error: {message: "Server not configured."}});
-        }
-
-        try {
-            const hasCreds = await setGoogleAuthCredentials(ADMIN_UID);
-            if (!hasCreds) {
-                return res.json({data: {eventCreated: false, eventId: null, error: "Admin not connected to Google."}});
-            }
-
-            const calendar = google.calendar({version: "v3", auth: oAuth2Client});
-            const description = `
-                Prenotazione per: ${clientName}
-                Telefono: ${clientPhone}
-                Email: ${clientEmail}
-                ---
-                Dettagli Lezione:
-                Sport: ${sport}
-                Tipo: ${lessonType}
-                Durata: ${duration} min
-                Sede: ${location}
-                ---
-                Note:
-                ${message || "Nessuna"}
-            `.trim().split("\n").map((line) => line.trim()).join("\n");
-
-            const event = {
-                summary: `Lezione ${sport} - ${clientName}`,
-                location,
-                description,
-                start: {dateTime: startTime, timeZone: "Europe/Rome"},
-                end: {dateTime: endTime, timeZone: "Europe/Rome"},
-                attendees: [{email: clientEmail}],
-                reminders: {
-                    useDefault: false,
-                    overrides: [
-                        {method: "email", minutes: 24 * 60},
-                        {method: "popup", minutes: 120},
-                    ],
-                },
-            };
-
-            const createdEvent = await calendar.events.insert({
-                calendarId: targetCalendarId || "primary",
-                requestBody: event,
-                sendNotifications: true,
-            });
-
-            return res.json({data: {eventCreated: true, eventId: createdEvent.data.id}});
-        } catch (error) {
-            console.error("Error creating event:", error);
-            return res.status(500).json({error: {message: "Could not create calendar event."}});
-        }
-    },
-);
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const api = (functions as any)
-    .region("us-central1")
-    .https.onRequest(app);
+// Export
+export const api = functions.region("us-central1").runWith({ memory: "512MB", timeoutSeconds: 60 }).https.onRequest(app);
+export { checkSlotFree, createBooking } from './bookings';
