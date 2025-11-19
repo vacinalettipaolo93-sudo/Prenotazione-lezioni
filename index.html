@@ -1,34 +1,20 @@
 <!DOCTYPE html>
-<html lang="it">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prenota Pro - Tennis & Padel</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎾</text></svg>">
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "firebase/": "https://aistudiocdn.com/firebase@^12.5.0/",
-    "axios": "https://aistudiocdn.com/axios@^1.13.2",
-    "firebase-functions": "https://aistudiocdn.com/firebase-functions@^7.0.0",
-    "firebase-admin": "https://aistudiocdn.com/firebase-admin@^13.6.0",
-    "express": "https://aistudiocdn.com/express@^5.1.0",
-    "cors": "https://aistudiocdn.com/cors@^2.8.5",
-    "googleapis": "https://aistudiocdn.com/googleapis@^166.0.0",
-    "firebase-admin/": "https://aistudiocdn.com/firebase-admin@^13.6.0/",
-    "esbuild": "https://aistudiocdn.com/esbuild@^0.27.0",
-    "fs/": "https://aistudiocdn.com/fs@^0.0.1-security/",
-    "fs": "https://aistudiocdn.com/fs@^0.0.1-security"
-  }
-}
-</script>
-</head>
-<body class="bg-gray-900 text-gray-200">
-  <div id="root"></div>
-  <script type="module" src="/index.js"></script>
-</body>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tournament Manager Pro</title>
+
+    <!-- NOTE:
+         Preferibile: integrare Tailwind tramite PostCSS / Tailwind CLI in fase di build.
+         Per sviluppo rapido si può usare il CDN, ma in produzione è consigliato evitare il CDN.
+    -->
+
+    <link rel="stylesheet" href="/index.css" />
+  </head>
+  <body class="h-full">
+    <div id="root" class="h-full"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
 </html>
