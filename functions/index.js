@@ -1,7 +1,6 @@
 // functions/index.js
-// Defensive Express app for Cloud Functions (exports.api)
-// Registers handlers both on /X and /api/X to avoid double-prefix issues.
-// Install deps in functions/: npm install express cors body-parser firebase-admin firebase-functions googleapis
+// Defensive Express app for Cloud Functions: registers handlers on both /X and /api/X
+// Install deps: npm install express cors body-parser firebase-admin firebase-functions googleapis
 
 const functions = require('firebase-functions');
 const express = require('express');
@@ -11,13 +10,10 @@ const admin = require('firebase-admin');
 const { google } = require('googleapis');
 
 const app = express();
-
-// Middlewares
 app.use(cors({ origin: true }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Initialize Firebase Admin (defensive)
 function initFirebaseAdmin() {
   if (admin.apps && admin.apps.length > 0) return;
   try {
@@ -50,7 +46,6 @@ function createOAuthClient() {
   return new google.auth.OAuth2(cfg.clientId, cfg.clientSecret, cfg.redirectUri || undefined);
 }
 
-// Helper to register same handler on both /path and /api/path
 function registerBoth(method, path, handler) {
   if (method === 'get') {
     app.get(path, handler);
@@ -64,7 +59,6 @@ function registerBoth(method, path, handler) {
   }
 }
 
-// Handler: getGoogleAuthUrl (supports GET and POST)
 const handleGetGoogleAuthUrl = async (req, res) => {
   try {
     const oauth2Client = createOAuthClient();
@@ -85,7 +79,6 @@ const handleGetGoogleAuthUrl = async (req, res) => {
 registerBoth('get', '/getGoogleAuthUrl', handleGetGoogleAuthUrl);
 registerBoth('post', '/getGoogleAuthUrl', handleGetGoogleAuthUrl);
 
-// Handler: checkServerSetup (supports GET and POST)
 const handleCheckServerSetup = async (req, res) => {
   try {
     const cfg = getCalendarConfig();
@@ -101,17 +94,12 @@ const handleCheckServerSetup = async (req, res) => {
 registerBoth('get', '/checkServerSetup', handleCheckServerSetup);
 registerBoth('post', '/checkServerSetup', handleCheckServerSetup);
 
-/**
- * POST /getBusySlotsOnBehalfOfAdmin
- * Expects { locationId, data: { timeMin, timeMax }, slotDurationMinutes, slotStepMinutes }
- */
 registerBoth('post', '/getBusySlotsOnBehalfOfAdmin', async (req, res) => {
   try {
-    const { locationId, data, slotDurationMinutes = 30 } = req.body || {};
+    const { data } = req.body || {};
     if (!data || !data.timeMin || !data.timeMax) {
       return res.status(400).json({ error: 'invalid_request', message: 'data.timeMin and data.timeMax required' });
     }
-
     const cfg = getCalendarConfig();
     if (cfg.serviceAccountJson) {
       const sa = JSON.parse(cfg.serviceAccountJson);
@@ -122,10 +110,8 @@ registerBoth('post', '/getBusySlotsOnBehalfOfAdmin', async (req, res) => {
       });
       await jwtClient.authorize();
       const calendar = google.calendar({ version: 'v3', auth: jwtClient });
-
       const calendarsEnv = process.env.SELECTED_CALENDAR_IDS || '';
       const calendarIds = calendarsEnv ? calendarsEnv.split(',').map(s => s.trim()).filter(Boolean) : ['primary'];
-
       const fbReq = {
         resource: {
           timeMin: data.timeMin,
@@ -133,14 +119,12 @@ registerBoth('post', '/getBusySlotsOnBehalfOfAdmin', async (req, res) => {
           items: calendarIds.map(id => ({ id })),
         },
       };
-
       const fb = await calendar.freebusy.query(fbReq);
       const calMap = fb.data.calendars || {};
       const busyIntervals = Object.values(calMap).flatMap(c => (c.busy || []));
       const slots = busyIntervals.map(interval => ({ startISO: interval.start, endISO: interval.end }));
       return res.json({ slots });
     }
-
     return res.json({ slots: [] });
   } catch (err) {
     console.error('getBusySlotsOnBehalfOfAdmin error:', err);
@@ -148,9 +132,6 @@ registerBoth('post', '/getBusySlotsOnBehalfOfAdmin', async (req, res) => {
   }
 });
 
-/**
- * POST /createBooking
- */
 registerBoth('post', '/createBooking', async (req, res) => {
   try {
     const payload = req.body || {};
@@ -174,18 +155,15 @@ registerBoth('post', '/createBooking', async (req, res) => {
         });
         await jwtClient.authorize();
         const calendar = google.calendar({ version: 'v3', auth: jwtClient });
-
         const calendarId = payload.targetCalendarId || process.env.DEFAULT_CALENDAR_ID || 'primary';
         const start = new Date(dateISO);
         const end = new Date(start.getTime() + (durationMinutes * 60 * 1000));
-
         const eventBody = {
           summary: payload.sport ? `Lezione: ${payload.sport}` : 'Prenotazione',
           description: payload.message || '',
           start: { dateTime: start.toISOString() },
           end: { dateTime: end.toISOString() },
         };
-
         const created = await calendar.events.insert({ calendarId, resource: eventBody });
         gcalEventId = created.data && created.data.id;
       } catch (gErr) {
@@ -221,20 +199,22 @@ registerBoth('post', '/createBooking', async (req, res) => {
   }
 });
 
-// Health endpoints (both prefixes)
+// Health endpoints both prefixes
 app.get('/', (req, res) => res.json({ ok: true, message: 'API is running' }));
 app.get('/api', (req, res) => res.json({ ok: true, message: 'API is running (api prefix)' }));
 
-// Export the Express app as Cloud Function "api"
+// Export function
 exports.api = functions.region('us-central1').https.onRequest(app);
 
-// OPTIONAL: log registered routes on startup (for debugging when emulator starts)
-if (app && app._router && app._router.stack) {
-  const routes = app._router.stack
-    .filter(r => r.route && r.route.path)
-    .map(r => {
-      const methods = r.route.methods ? Object.keys(r.route.methods).join(',') : '';
-      return `${r.route.path} [${methods}]`;
-    });
-  console.log('Registered routes:', routes);
-}
+// Debug: list routes
+setTimeout(() => {
+  if (app && app._router && app._router.stack) {
+    const routes = app._router.stack
+      .filter(r => r.route && r.route.path)
+      .map(r => {
+        const methods = r.route.methods ? Object.keys(r.route.methods).join(',') : '';
+        return `${r.route.path} [${methods}]`;
+      });
+    console.log('Registered routes:', routes);
+  }
+}, 500);
