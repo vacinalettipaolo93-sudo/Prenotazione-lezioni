@@ -1,6 +1,5 @@
 // services/functionsClient.ts
 // Client helper per chiamare le Cloud Functions dal frontend.
-// Posizionalo in: services/functionsClient.ts
 
 type BusySlot = { startISO: string; endISO: string };
 type GetBusySlotsResponse = { slots: BusySlot[] } | { error?: string; message?: string };
