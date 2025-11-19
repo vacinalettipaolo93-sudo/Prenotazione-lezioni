@@ -33,16 +33,6 @@ async function postJSON<T = any>(path: string, body: any, opts: { idToken?: stri
   return json as T;
 }
 
-/**
- * Recupera gli slot disponibili (o "busy slots" a seconda dell'implementazione)
- * Si aspetta che la funzione restituisca { slots: [{ startISO, endISO }, ...] }
- *
- * @param locationId id della sede (es. "GAVARDO")
- * @param timeMin ISO string (start window)
- * @param timeMax ISO string (end window)
- * @param slotDurationMinutes durata slot (es. 30)
- * @param slotStepMinutes passo per generazione (opzionale)
- */
 export async function fetchBusySlotsForWindow(
   locationId: string,
   timeMin: string,
@@ -65,18 +55,6 @@ export async function fetchBusySlotsForWindow(
   return (res as GetBusySlotsResponse).slots;
 }
 
-/**
- * Crea una prenotazione.
- * payload minimo atteso:
- * {
- *   locationId: string,
- *   dateISO: string,         // start ISO
- *   durationMinutes: number,
- *   clientName: string,
- *   clientEmail?: string,
- *   ...other optional fields
- * }
- */
 export async function createBooking(payload: any): Promise<CreateBookingResponse> {
   if (!payload || !payload.locationId || !payload.dateISO || !payload.clientName) {
     throw new Error('locationId, dateISO e clientName sono richiesti nel payload');
