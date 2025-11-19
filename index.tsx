@@ -1,7 +1,5 @@
 // Minimal ES module fallback served at /index.tsx
-// È un modulo ES valido: importa React/ReactDOM da CDN e monta una UI di placeholder.
-// Salva questo file come: index.tsx (nella root del progetto)
-
+// Salva questo file come: index.tsx nella root del progetto (solo come fallback rapido)
 import React from 'https://esm.sh/react@18.2.0';
 import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
 
@@ -52,7 +50,6 @@ function App() {
   try {
     createRoot(rootEl).render(React.createElement(App));
   } catch (err) {
-    // Fallback: in alcuni ambienti (vecchi browser) createRoot potrebbe non esistere
-    rootEl.innerText = 'Errore nel montare l\'app fallback: ' + (err && err.message);
+    rootEl.innerText = 'Errore nel montare l\\'app fallback: ' + (err && err.message);
   }
 })();
