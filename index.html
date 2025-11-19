@@ -1,13 +1,83 @@
 <!doctype html>
 <html lang="it">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Gestione Prenotazioni</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <!-- Entry module: Vite / esbuild / browser importer userà index.tsx -->
-    <script type="module" src="/index.tsx"></script>
-  </body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Gestione Prenotazioni</title>
+
+  <!-- Favicon embedded per evitare 404 su /favicon.ico o /vite.svg -->
+  <link rel="icon" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='8' ry='8' fill='%2300b4d8'/><text x='50%' y='55%' font-size='10' font-family='Arial, Helvetica, sans-serif' fill='white' text-anchor='middle' alignment-baseline='middle'>GP</text></svg>" />
+
+  <style>
+    :root {
+      --bg: #07112a;
+      --card: #071a36;
+      --muted: #a9c3e6;
+      --accent: #8cd1ff;
+    }
+    html,body,#root { height: 100%; margin: 0; }
+    body {
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background: var(--bg);
+      color: #e6eef8;
+      -webkit-font-smoothing:antialiased;
+      -moz-osx-font-smoothing:grayscale;
+    }
+    .page {
+      min-height: 100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .card {
+      width:100%;
+      max-width:980px;
+      background: var(--card);
+      border-radius:10px;
+      padding:28px;
+      box-shadow: 0 8px 30px rgba(2,6,23,0.6);
+      text-align:center;
+    }
+    h1 { margin:0; font-size:20px; }
+    p { margin-top:12px; color:var(--muted); line-height:1.5; }
+    a.btn {
+      display:inline-block;
+      margin-top:18px;
+      padding:10px 16px;
+      background:var(--accent);
+      color:#042033;
+      border-radius:6px;
+      text-decoration:none;
+      font-weight:600;
+    }
+    .notes { margin-top:18px; color: #bcd5f1; font-size:13px; text-align:left; }
+    .small { font-size:12px; color:#9fb6dc; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div id="root" class="page">
+    <div class="card" role="main" aria-labelledby="title">
+      <h1 id="title">Gestione Prenotazioni — pagina temporanea</h1>
+      <p>
+        Hai raggiunto una versione di fallback del sito. I file sorgente (index.tsx / assets) non sono disponibili nel deploy corrente,
+        quindi questa pagina viene mostrata per evitare errori 404 in console.
+      </p>
+
+      <a class="btn" href="/" onclick="location.reload(); return false;">Ricarica la pagina</a>
+
+      <div class="notes">
+        <strong>Cosa fare dopo (consigliato):</strong>
+        <ul>
+          <li>1) Verifica i file di build Vite nella pipeline di deploy (assicurati che la build generi la cartella dist con gli asset).</li>
+          <li>2) Se usi Vercel, assicurati che lo script di build produca gli asset e che Vercel serva la cartella corretta.</li>
+          <li>3) Quando vuoi ripristinare l'app React completa, ripristineremo insieme index.html che carica i bundle generati da Vite.</li>
+        </ul>
+      </div>
+
+      <div class="small">Se vuoi, esegui ora: git add index.html && git commit -m "chore: add static fallback index.html" && git push</div>
+    </div>
+  </div>
+</body>
 </html>
