@@ -1,0 +1,59 @@
+/* index.css corretto e minimale per l'app */
+:root {
+  --bg: #0f172a;         /* primary dark */
+  --secondary: #1e293b;  /* slate-800 */
+  --tertiary: #334155;   /* slate-700 */
+  --accent: #22d3ee;     /* cyan-400 */
+  --highlight: #8b5cf6;  /* violet-500 */
+  --text-primary: #e2e8f0; /* slate-200 */
+  --text-secondary: #94a3b8; /* slate-400 */
+}
+
+/* Full height layout */
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Basic utility classes used by the app (minimal) */
+.container {
+  max-width: 1080px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  cursor: pointer;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* Example small helpers */
+.text-muted { color: var(--text-secondary); }
+.card {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.04);
+  padding: 1rem;
+  border-radius: 0.75rem;
+}
