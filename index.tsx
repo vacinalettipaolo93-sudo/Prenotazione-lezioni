@@ -1,20 +1,25 @@
-// Minimal ES module fallback served at /index.tsx
-// Salva questo file come: index.tsx nella root del progetto (solo come fallback rapido)
-import React from 'https://esm.sh/react@18.2.0';
-import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import './index.css';
 
-function App() {
-  const style = {
+/**
+ * Minimal app entry in TSX that compiles with Vite/esbuild.
+ * This is a safe fallback UI that avoids syntax errors during build.
+ * Replace with your full app later if needed.
+ */
+
+function App(): JSX.Element {
+  const style: React.CSSProperties = {
     fontFamily: 'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial',
     color: '#e6eef8',
     background: '#07112a',
-    height: '100vh',
+    minHeight: '100vh',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     padding: '20px',
   };
-  const box = {
+  const box: React.CSSProperties = {
     maxWidth: 980,
     width: '100%',
     background: '#071a36',
@@ -25,31 +30,23 @@ function App() {
   };
 
   return (
-    React.createElement('div', { style },
-      React.createElement('div', { style: box },
-        React.createElement('h1', { style: { margin: 0, fontSize: 22 } }, 'Gestione Prenotazioni — versione fallback'),
-        React.createElement('p', { style: { marginTop: 12, color: '#a9c3e6' } },
-          'Questa è una versione minima di fallback per evitare errori 404. ',
-          'Per ripristinare tutte le funzionalità, esegui il build Vite e assicurati che i riferimenti agli asset siano corretti.'
-        ),
-        React.createElement('div', { style: { marginTop: 16 } },
-          React.createElement('a', { href: '/', style: { color: '#8cd1ff', textDecoration: 'underline' } }, 'Ricarica la pagina')
-        )
-      )
-    )
+    <div style={style}>
+      <div style={box}>
+        <h1 style={{ margin: 0, fontSize: 22 }}>Gestione Prenotazioni — fallback</h1>
+        <p style={{ marginTop: 12, color: '#a9c3e6' }}>
+          Questa è una versione minima di fallback per evitare errori 404/build.
+          Per ripristinare tutte le funzionalità, ricompila la build Vite con i sorgenti originali.
+        </p>
+        <div style={{ marginTop: 16 }}>
+          <a href="/" style={{ color: '#8cd1ff', textDecoration: 'underline' }}>
+            Ricarica la pagina
+          </a>
+        </div>
+      </div>
+    </div>
   );
 }
 
-(function mount() {
-  let rootEl = document.getElementById('root');
-  if (!rootEl) {
-    rootEl = document.createElement('div');
-    rootEl.id = 'root';
-    document.body.appendChild(rootEl);
-  }
-  try {
-    createRoot(rootEl).render(React.createElement(App));
-  } catch (err) {
-    rootEl.innerText = 'Errore nel montare l\\'app fallback: ' + (err && err.message);
-  }
-})();
+const rootEl = document.getElementById('root')!;
+createRoot(rootEl).render(<App />);
+export default App;
