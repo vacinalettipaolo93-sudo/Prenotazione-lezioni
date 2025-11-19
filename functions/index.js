@@ -1,6 +1,6 @@
 // functions/index.js
 // Defensive Express app for Cloud Functions: registers handlers on both /X and /api/X
-// Install deps: npm install express cors body-parser firebase-admin firebase-functions googleapis
+// Dependencies (in functions/): express cors body-parser firebase-admin firebase-functions googleapis
 
 const functions = require('firebase-functions');
 const express = require('express');
@@ -14,6 +14,7 @@ app.use(cors({ origin: true }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// Initialize Firebase Admin (defensive)
 function initFirebaseAdmin() {
   if (admin.apps && admin.apps.length > 0) return;
   try {
@@ -46,19 +47,22 @@ function createOAuthClient() {
   return new google.auth.OAuth2(cfg.clientId, cfg.clientSecret, cfg.redirectUri || undefined);
 }
 
+// Register same handler both on /path and /api/path to avoid double-prefix mismatches
 function registerBoth(method, path, handler) {
+  const apiPath = '/api' + path;
   if (method === 'get') {
     app.get(path, handler);
-    app.get('/api' + path, handler);
+    app.get(apiPath, handler);
   } else if (method === 'post') {
     app.post(path, handler);
-    app.post('/api' + path, handler);
+    app.post(apiPath, handler);
   } else {
     app.use(path, handler);
-    app.use('/api' + path, handler);
+    app.use(apiPath, handler);
   }
 }
 
+// GET/POST /getGoogleAuthUrl
 const handleGetGoogleAuthUrl = async (req, res) => {
   try {
     const oauth2Client = createOAuthClient();
@@ -79,6 +83,7 @@ const handleGetGoogleAuthUrl = async (req, res) => {
 registerBoth('get', '/getGoogleAuthUrl', handleGetGoogleAuthUrl);
 registerBoth('post', '/getGoogleAuthUrl', handleGetGoogleAuthUrl);
 
+// GET/POST /checkServerSetup
 const handleCheckServerSetup = async (req, res) => {
   try {
     const cfg = getCalendarConfig();
@@ -94,6 +99,11 @@ const handleCheckServerSetup = async (req, res) => {
 registerBoth('get', '/checkServerSetup', handleCheckServerSetup);
 registerBoth('post', '/checkServerSetup', handleCheckServerSetup);
 
+/**
+ * POST /getBusySlotsOnBehalfOfAdmin
+ * Expects body: { locationId, data: { timeMin, timeMax }, slotDurationMinutes, slotStepMinutes }
+ * Returns: { slots: [ { startISO, endISO }, ... ] }
+ */
 registerBoth('post', '/getBusySlotsOnBehalfOfAdmin', async (req, res) => {
   try {
     const { data } = req.body || {};
@@ -110,8 +120,10 @@ registerBoth('post', '/getBusySlotsOnBehalfOfAdmin', async (req, res) => {
       });
       await jwtClient.authorize();
       const calendar = google.calendar({ version: 'v3', auth: jwtClient });
+
       const calendarsEnv = process.env.SELECTED_CALENDAR_IDS || '';
       const calendarIds = calendarsEnv ? calendarsEnv.split(',').map(s => s.trim()).filter(Boolean) : ['primary'];
+
       const fbReq = {
         resource: {
           timeMin: data.timeMin,
@@ -119,6 +131,7 @@ registerBoth('post', '/getBusySlotsOnBehalfOfAdmin', async (req, res) => {
           items: calendarIds.map(id => ({ id })),
         },
       };
+
       const fb = await calendar.freebusy.query(fbReq);
       const calMap = fb.data.calendars || {};
       const busyIntervals = Object.values(calMap).flatMap(c => (c.busy || []));
@@ -132,6 +145,10 @@ registerBoth('post', '/getBusySlotsOnBehalfOfAdmin', async (req, res) => {
   }
 });
 
+/**
+ * POST /createBooking
+ * Body must include: locationId, dateISO, durationMinutes, clientName
+ */
 registerBoth('post', '/createBooking', async (req, res) => {
   try {
     const payload = req.body || {};
@@ -155,15 +172,18 @@ registerBoth('post', '/createBooking', async (req, res) => {
         });
         await jwtClient.authorize();
         const calendar = google.calendar({ version: 'v3', auth: jwtClient });
+
         const calendarId = payload.targetCalendarId || process.env.DEFAULT_CALENDAR_ID || 'primary';
         const start = new Date(dateISO);
         const end = new Date(start.getTime() + (durationMinutes * 60 * 1000));
+
         const eventBody = {
           summary: payload.sport ? `Lezione: ${payload.sport}` : 'Prenotazione',
           description: payload.message || '',
           start: { dateTime: start.toISOString() },
           end: { dateTime: end.toISOString() },
         };
+
         const created = await calendar.events.insert({ calendarId, resource: eventBody });
         gcalEventId = created.data && created.data.id;
       } catch (gErr) {
@@ -199,14 +219,14 @@ registerBoth('post', '/createBooking', async (req, res) => {
   }
 });
 
-// Health endpoints both prefixes
-app.get('/', (req, res) => res.json({ ok: true, message: 'API is running' }));
-app.get('/api', (req, res) => res.json({ ok: true, message: 'API is running (api prefix)' }));
+// Health endpoints for both prefixes
+registerBoth('get', '/', (req, res) => res.json({ ok: true, message: 'API is running' }));
+registerBoth('get', '/api', (req, res) => res.json({ ok: true, message: 'API is running (api prefix)' }));
 
-// Export function
+// Export Cloud Function named "api"
 exports.api = functions.region('us-central1').https.onRequest(app);
 
-// Debug: list routes
+// Print registered routes on startup (debug)
 setTimeout(() => {
   if (app && app._router && app._router.stack) {
     const routes = app._router.stack
