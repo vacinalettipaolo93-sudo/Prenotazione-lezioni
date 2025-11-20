@@ -6,7 +6,7 @@ import Spinner from './components/Spinner';
 import AdminDashboard from './components/AdminDashboard';
 import BookingFlow from './components/BookingFlow';
 import { FIREBASE_CONFIG, GOOGLE_API_CONFIG, ADMIN_UID } from './constants';
-import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext';
+// import { GoogleCalendarProvider } from './contexts/GoogleCalendarContext'; // Rimosso
 
 type View = 'home' | 'booking' | 'login' | 'admin';
 
@@ -44,10 +44,11 @@ const App: React.FC = () => {
     );
   }
 
+  // Rimosso GoogleCalendarProvider
   return (
-      <GoogleCalendarProvider user={user}>
+      <>
           {user ? <AdminDashboard user={user} /> : <PublicApp />}
-      </GoogleCalendarProvider>
+      </>
   );
 };
 
@@ -114,19 +115,43 @@ const ConfigurationNeededScreen: React.FC = () => {
 const HomeScreen: React.FC<{onSelectSport: (sport: string) => void, setView: (view: View) => void}> = ({ onSelectSport, setView }) => {
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchSettings = async () => {
             setLoading(true);
-            const appSettings = await getAppSettings();
-            setSettings(appSettings);
-            setLoading(false);
+            setError(null);
+            try {
+                const appSettings = await getAppSettings();
+                if (appSettings) {
+                    setSettings(appSettings);
+                } else {
+                    throw new Error("Le impostazioni dell'applicazione non sono state caricate.");
+                }
+            } catch (err: any) {
+                console.error("Errore nel caricamento della HomeScreen:", err);
+                setError("Impossibile connettersi al server. Questo di solito accade perché il backend (le Firebase Functions) non è ancora stato attivato. Se sei l'amministratore, prova a eseguire il deploy del backend.");
+            } finally {
+                setLoading(false);
+            }
         };
         fetchSettings();
     }, []);
 
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center"><Spinner /></div>
+    }
+
+    if (error) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gray-900 p-4">
+                <div className="bg-gray-800 border border-red-700 rounded-2xl shadow-2xl max-w-lg w-full p-8 text-center">
+                    <svg className="mx-auto h-12 w-12 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <h1 className="text-2xl font-bold text-red-400 mt-4">Oops! Qualcosa è andato storto.</h1>
+                    <p className="text-gray-400 mt-2">{error}</p>
+                </div>
+            </div>
+        );
     }
     
     return (

@@ -1,0 +1,7 @@
+/* index.css - minimal styles for fallback page */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #07112a;
+}

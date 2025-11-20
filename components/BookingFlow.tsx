@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { collection, addDoc, query, where, getDocs, Timestamp } from 'firebase/firestore';
-import { db, getAppSettings } from '../services/firebase';
+import { getAppSettings } from '../services/firebase';
 import * as GCal from '../services/googleCalendar';
 import { type Booking, type AppSettings } from '../types';
 import Spinner from './Spinner';
 import { ADMIN_UID } from '../constants';
-import { useGoogleCalendar } from '../contexts/GoogleCalendarContext';
+import { fetchBusySlotsForWindow, createBooking } from '../services/functionsClient';
 
 interface BookingFlowProps {
   sport: string;
@@ -15,8 +14,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
     const [settings, setSettings] = useState<AppSettings | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [busySlots, setBusySlots] = useState<Date[]>([]);
-    const { isReady, isAuthorized, connect, error: authError } = useGoogleCalendar();
+    const [availableSlots, setAvailableSlots] = useState<Date[]>([]);
     
     // 1: Date, 2: Location, 3: Time, 4: Lesson Details, 5: Client Details
     const [step, setStep] = useState(1); 
@@ -77,58 +75,73 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
     }, [sportSettings, lessonTypeId, durationValue]);
 
 
+    // Fetch busy/available slots for a specific date and location.
+    // We prefer to use the Cloud Function (fetchBusySlotsForWindow). If it fails, we fallback to generating client-side slots from settings (no direct Firestore reads).
     const fetchBusySlots = useCallback(async (date: Date) => {
-        if (!isAuthorized) return;
         setLoading(true);
-        const startOfDay = new Date(date);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(date);
-        endOfDay.setHours(23, 59, 59, 999);
-
-        let allBusySlots: Date[] = [];
-
+        setError(null);
+        setAvailableSlots([]);
         try {
-            if (settings?.selectedCalendarIds?.length) {
-                const busyIntervals = await GCal.getBusySlots(startOfDay.toISOString(), endOfDay.toISOString(), settings.selectedCalendarIds);
-                const gCalBusyTimes = busyIntervals.flatMap(interval => {
-                    const start = new Date(interval.start);
-                    const end = new Date(interval.end);
-                    const slots = [];
-                    for (let d = new Date(start); d < end; d.setMinutes(d.getMinutes() + 30)) {
-                        slots.push(new Date(d));
-                    }
-                    return slots;
-                });
-                allBusySlots = allBusySlots.concat(gCalBusyTimes);
+            const startOfDay = new Date(date);
+            startOfDay.setHours(0, 0, 0, 0);
+            const endOfDay = new Date(date);
+            endOfDay.setHours(23, 59, 59, 999);
+
+            // If a location is selected, ask the function for available slots for that location + day
+            if (selectedLocationId) {
+                const slotInterval = settings?.availability?.[selectedLocationId]?.slotInterval || durationValue || 30;
+                try {
+                    const slots = await fetchBusySlotsForWindow(
+                        selectedLocationId,
+                        startOfDay.toISOString(),
+                        endOfDay.toISOString(),
+                        slotInterval,
+                        slotInterval
+                    );
+                    // Expecting array of { startISO, endISO }
+                    const dates = slots.map((s: any) => new Date(s.startISO));
+                    setAvailableSlots(dates);
+                    setLoading(false);
+                    return;
+                } catch (fnErr) {
+                    console.warn("Cloud function fetch failed, will fallback:", fnErr);
+                    // continue to fallback generation below
+                }
             }
 
-            if (db) {
-                const bookingsQuery = query(
-                    collection(db, "bookings"),
-                    where("startTime", ">=", Timestamp.fromDate(startOfDay)),
-                    where("startTime", "<=", Timestamp.fromDate(endOfDay))
-                );
-                const querySnapshot = await getDocs(bookingsQuery);
-                const firestoreBusyTimes = querySnapshot.docs.flatMap(doc => {
-                    const data = doc.data();
-                    const start = (data.startTime as Timestamp).toDate();
-                    const end = (data.endTime as Timestamp).toDate();
-                    const slots = [];
-                    for (let d = new Date(start); d < end; d.setMinutes(d.getMinutes() + 30)) {
-                         slots.push(new Date(d));
-                    }
-                    return slots;
-                });
-                allBusySlots = allBusySlots.concat(firestoreBusyTimes);
+            // Fallback: generate slots locally based on settings availability (no Firestore reads)
+            if (!selectedLocationId || !settings?.availability) {
+                setAvailableSlots([]);
+                setLoading(false);
+                return;
             }
-            
-            setBusySlots(allBusySlots);
+            const dayIndex = date.getDay();
+            const locationRule = settings.availability[selectedLocationId];
+            const dayRule = locationRule?.dayOverrides?.[dayIndex];
+            if (!dayRule || !dayRule.enabled) {
+                setAvailableSlots([]);
+                setLoading(false);
+                return;
+            }
+            const slots: Date[] = [];
+            const [startHour, startMinute] = dayRule.startTime.split(':').map(Number);
+            const [endHour, endMinute] = dayRule.endTime.split(':').map(Number);
+            const startDate = new Date(date);
+            startDate.setHours(startHour, startMinute, 0, 0);
+            const endDate = new Date(date);
+            endDate.setHours(endHour, endMinute, 0, 0);
+            const step = locationRule.slotInterval || 30;
+            for (let d = new Date(startDate); d < endDate; d.setMinutes(d.getMinutes() + step)) {
+                slots.push(new Date(d));
+            }
+            setAvailableSlots(slots);
         } catch (e) {
             console.error("Failed to fetch busy slots:", e);
+            setError("Impossibile caricare le disponibilità. Riprova tra poco.");
         } finally {
             setLoading(false);
         }
-    }, [settings?.selectedCalendarIds, isAuthorized]);
+    }, [selectedLocationId, settings, durationValue]);
 
     useEffect(() => {
         if(step === 3){
@@ -138,7 +151,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
 
     const handleBooking = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!selectedSlot || !clientName || !clientEmail || !clientPhone || !db || !selectedLocationId) return;
+      if (!selectedSlot || !clientName || !clientEmail || !clientPhone || !selectedLocationId) return;
   
       setBookingState('booking');
       const endTime = new Date(selectedSlot.getTime() + durationValue * 60 * 1000);
@@ -146,61 +159,29 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
       const lessonTypeName = sportSettings.lessonTypes.find(l => l.id === lessonTypeId)?.name || 'N/A';
       
       const targetCalendarId = settings?.locationCalendarMapping?.[selectedLocationId];
-  
+
       try {
-        let gcalEventId: string | undefined = undefined;
-  
-        // Se è stato configurato un calendario per questa sede e l'utente è autorizzato,
-        // crea l'evento su Google Calendar.
-        if (targetCalendarId && isAuthorized) {
-          const eventDescription = `
-  Dettagli Prenotazione:
-  - Cliente: ${clientName}
-  - Email: ${clientEmail}
-  - Telefono: ${clientPhone}
-  - Sport: ${sport}
-  - Tipo Lezione: ${lessonTypeName}
-  - Durata: ${durationValue} minuti
-  - Sede: ${locationName}
-  
-  Note aggiuntive:
-  ${message || 'Nessuna nota fornita.'}
-          `.trim();
-  
-          const gcalEvent = await GCal.createCalendarEvent({
-            summary: `Lezione di ${sport} con ${clientName}`,
-            description: eventDescription,
-            start: { dateTime: selectedSlot.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-            end: { dateTime: endTime.toISOString(), timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
-            // Aggiungiamo il cliente come partecipante, così riceverà l'invito via email.
-            attendees: [{ email: clientEmail }],
-          }, targetCalendarId);
-          gcalEventId = gcalEvent?.id;
-        }
-  
-        // Salviamo la prenotazione su Firebase, includendo l'ID dell'evento di Google Calendar se creato.
-        const newBooking: Omit<Booking, 'id'> = {
-          ownerUid: ADMIN_UID,
+        // Use Cloud Function to create booking (server will write Firestore and optionally create GCal event)
+        const payload = {
+          locationId: selectedLocationId,
+          dateISO: selectedSlot.toISOString(),
+          durationMinutes: durationValue,
           clientName,
           clientEmail,
           clientPhone,
+          message,
           sport,
           lessonType: lessonTypeName,
-          duration: durationValue,
-          location: locationName,
-          startTime: selectedSlot,
-          endTime,
-          message,
-          targetCalendarId,
-          // Se l'evento è stato creato, la prenotazione è automaticamente confermata.
-          // Altrimenti, rimane in attesa di approvazione manuale.
-          status: gcalEventId ? 'confirmed' : 'pending',
-          gcalEventId,
+          targetCalendarId: targetCalendarId || null
         };
-  
-        await addDoc(collection(db, "bookings"), newBooking);
-        setBookingState('success');
-  
+
+        const resp = await createBooking(payload);
+        if (resp?.success) {
+          setBookingState('success');
+        } else {
+          console.error("createBooking response:", resp);
+          setBookingState('error');
+        }
       } catch (error) {
         console.error("La prenotazione è fallita:", error);
         setBookingState('error');
@@ -208,6 +189,10 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
     };
 
     const generatedTimeSlots = useMemo(() => {
+        // If we received availableSlots from server/function, prefer those
+        if (availableSlots && availableSlots.length > 0) return availableSlots;
+
+        // Fallback: generate from availability (kept for offline or function-failure scenario)
         if (!selectedLocationId || !settings?.availability) return [];
         
         const dayIndex = selectedDate.getDay();
@@ -218,7 +203,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
             return [];
         }
 
-        const slots = [];
+        const slots: Date[] = [];
         const [startHour, startMinute] = dayRule.startTime.split(':').map(Number);
         const [endHour, endMinute] = dayRule.endTime.split(':').map(Number);
 
@@ -233,44 +218,19 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
         }
         return slots;
 
-    }, [selectedDate, selectedLocationId, settings?.availability]);
+    }, [availableSlots, selectedDate, selectedLocationId, settings?.availability]);
     
     // UI Rendering
-    if (!isReady || (loading && !settings)) {
+    if (loading && !settings) {
       return <div className="flex items-center justify-center p-10"><Spinner /> Caricamento...</div>;
     }
     
-    if (authError) {
-       return (
-          <div className="bg-gray-800 rounded-2xl shadow-xl max-w-lg mx-auto p-8 text-center border border-red-700">
-              <h2 className="text-2xl font-bold text-red-400">Errore di Connessione</h2>
-              <p className="text-gray-300 mt-4">Impossibile connettersi ai servizi Google. Controlla la console per dettagli tecnici o riprova più tardi.</p>
-              <p className="text-xs text-gray-500 mt-4 whitespace-pre-wrap">{authError}</p>
-          </div>
-       );
-    }
-
-    if (!isAuthorized) {
-        return (
-            <div className="bg-gray-800 rounded-2xl shadow-xl max-w-lg mx-auto p-8 text-center border border-gray-700">
-                <h2 className="text-3xl font-bold text-white">Vedi le disponibilità reali</h2>
-                <p className="text-gray-300 mt-4 mb-8">
-                    Per visualizzare il calendario con gli orari aggiornati in tempo reale e procedere con la prenotazione, è necessario collegare il tuo account Google.
-                </p>
-                <button 
-                    onClick={connect}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-transform transform hover:scale-105 flex items-center justify-center gap-3 w-full max-w-sm mx-auto"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                    Connetti a Google Calendar
-                </button>
-            </div>
-        );
-    }
-    
-    if (error) return <div className="text-center p-10 text-red-400">{error}</div>;
+    if (error) return (
+        <div className="bg-gray-800 rounded-2xl shadow-xl max-w-lg mx-auto p-8 text-center border border-red-700">
+            <h2 className="text-2xl font-bold text-red-400">Errore</h2>
+            <p className="text-gray-300 mt-4">{error}</p>
+        </div>
+    );
 
     const handleAddToCalendar = () => {
         if (!selectedSlot) return;
@@ -311,7 +271,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
                         onClick={handleAddToCalendar} 
                         className="w-full bg-gray-700 hover:bg-gray-600 text-gray-200 font-bold py-3 px-6 rounded-lg border-2 border-gray-600 transition-colors flex items-center justify-center gap-2"
                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clipRule="evenodd" /></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zM7 11h6v2H7v-2z" clipRule="evenodd" /></svg>
                         Aggiungi a Google Calendar
                     </button>
                     <button onClick={() => window.location.reload()} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-6 rounded-lg">
@@ -322,6 +282,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
         );
     }
     
+    // Render calendar, selectors and steps (reusing original UI)
     const renderCalendar = () => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -392,7 +353,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
         <div>
             <div className="flex flex-wrap justify-center gap-4">
                 {settings?.locations?.map(loc => (
-                    <button key={loc.id} onClick={() => { setSelectedLocationId(loc.id); setStep(3); }} className="px-6 py-3 rounded-lg font-semibold transition text-lg bg-gray-700 text-gray-200 hover:bg-emerald-600 hover:text-white shadow-sm">
+                    <button key={loc.id} onClick={() => { setSelectedLocationId(loc.id); setStep(3); }} className="px-6 py-3 rounded-lg font-semibold transition text-lg bg-gray-700 text-gray-200 hover:bg-emerald-600 hover:text-white">
                         {loc.name}
                     </button>
                 ))}
@@ -404,7 +365,11 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
     );
     
     const renderTimeSlots = () => {
-        const isSlotBusy = (slot: Date) => busySlots.some(busySlot => Math.abs(busySlot.getTime() - slot.getTime()) < 15 * 60 * 1000);
+        const isSlotBusy = (slot: Date) => {
+            // since we now use availableSlots as source of truth, busy = NOT in availableSlots
+            const inAvailable = availableSlots.some(a => Math.abs(a.getTime() - slot.getTime()) < 1000);
+            return !inAvailable;
+        };
         
         const noticeHours = settings?.bookingNoticeHours || 12; // Default 12 ore
         const noticeCutoffDate = new Date(new Date().getTime() + noticeHours * 60 * 60 * 1000);
@@ -417,7 +382,7 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
                             const isBusy = isSlotBusy(slot);
                             const isWithinNoticePeriod = slot < noticeCutoffDate;
                             return (
-                                <button key={slot.toISOString()} disabled={isBusy || isWithinNoticePeriod} onClick={() => { setSelectedSlot(slot); setStep(4); }} className={`p-3 rounded-lg font-semibold transition-colors border ${isWithinNoticePeriod ? 'border-gray-700 text-gray-600 cursor-not-allowed' : isBusy ? 'border-gray-700 text-gray-500 line-through cursor-not-allowed' : 'border-gray-600 text-gray-200 hover:bg-emerald-600 hover:border-emerald-600 hover:text-white'}`}>
+                                <button key={slot.toISOString()} disabled={isBusy || isWithinNoticePeriod} onClick={() => { setSelectedSlot(slot); setStep(4); }} className={`p-3 rounded-lg font-semibold ${isBusy ? 'bg-red-900/40 text-red-400 line-through' : 'bg-gray-700 text-gray-200 hover:bg-emerald-600 hover:text-white'}`}>
                                     {slot.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
                                 </button>
                             );
@@ -438,7 +403,9 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
                     <h3 className="font-semibold text-gray-200 mb-2">Tipologia di Lezione</h3>
                     <div className="flex flex-wrap gap-3">
                         {sportSettings.lessonTypes.map(type => (
-                            <button key={type.id} onClick={() => setLessonTypeId(type.id)} className={`px-4 py-2 rounded-lg font-medium transition ${lessonTypeId === type.id ? 'bg-emerald-600 text-white shadow' : 'bg-gray-700 hover:bg-gray-600'}`}>{type.name}</button>
+                            <button key={type.id} onClick={() => setLessonTypeId(type.id)} className={`px-4 py-2 rounded-lg font-medium transition ${lessonTypeId === type.id ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'}`}>
+                                {type.name}
+                            </button>
                         ))}
                          {sportSettings.lessonTypes.length === 0 && <p className="text-gray-500">Nessun tipo di lezione configurato per questo sport.</p>}
                     </div>
@@ -447,7 +414,9 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
                     <h3 className="font-semibold text-gray-200 mb-2">Durata</h3>
                     <div className="flex flex-wrap gap-3">
                         {sportSettings.durations.map(d => (
-                            <button key={d.id} onClick={() => setDurationValue(d.value)} className={`px-4 py-2 rounded-lg font-medium transition ${durationValue === d.value ? 'bg-emerald-600 text-white shadow' : 'bg-gray-700 hover:bg-gray-600'}`}>{d.value} min</button>
+                            <button key={d.id} onClick={() => setDurationValue(d.value)} className={`px-4 py-2 rounded-lg font-medium transition ${durationValue === d.value ? 'bg-emerald-600 text-white' : 'bg-gray-700 text-gray-200 hover:bg-gray-600'}`}>
+                                {d.value} min
+                            </button>
                         ))}
                         {sportSettings.durations.length === 0 && <p className="text-gray-500">Nessuna durata configurata per questo sport.</p>}
                     </div>
@@ -482,20 +451,20 @@ const BookingFlow: React.FC<BookingFlowProps> = ({ sport }) => {
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <input type="text" value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Nome e Cognome" required className="w-full p-3 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-emerald-500" />
-                    <input type="email" value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="Email" required className="w-full p-3 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-emerald-500" />
+                    <input type="text" value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Nome e Cognome" required className="w-full p-3 bg-gray-700 border border-gray-600 text-white rounded" />
+                    <input type="email" value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="Email" required className="w-full p-3 bg-gray-700 border border-gray-600 text-white rounded" />
                 </div>
                 <div className="mb-4">
-                    <input type="tel" value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="Numero di Telefono" required className="w-full p-3 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-emerald-500" />
+                    <input type="tel" value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="Numero di Telefono" required className="w-full p-3 bg-gray-700 border border-gray-600 text-white rounded" />
                 </div>
                 <div className="mb-6">
-                    <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Note aggiuntive (opzionale)" rows={3} className="w-full p-3 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-emerald-500" />
+                    <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Note aggiuntive (opzionale)" rows={3} className="w-full p-3 bg-gray-700 border border-gray-600 text-white rounded"></textarea>
                 </div>
 
                 {bookingState === 'error' && <p className="text-red-400 text-center mb-4">Errore durante la prenotazione. Riprova.</p>}
 
                 <div className="flex flex-col items-center">
-                    <button type="submit" disabled={bookingState === 'booking'} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center disabled:bg-emerald-800">
+                    <button type="submit" disabled={bookingState === 'booking'} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg flex items-center justify-center">
                         {bookingState === 'booking' ? <Spinner /> : `Invia Richiesta`}
                     </button>
                     <p className="text-sm text-amber-400/80 mt-3 text-center uppercase"><strong>LA PRENOTAZIONE VERRÀ CONFERMATA DOPO LA PRENOTAZIONE DEL CAMPO DA PARTE DEL MAESTRO</strong></p>

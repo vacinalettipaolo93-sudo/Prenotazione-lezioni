@@ -1,34 +1,46 @@
-// ATTENZIONE: È FONDAMENTALE sostituire questi valori con le tue credenziali reali.
-// L'applicazione non funzionerà correttamente finché non avrai inserito le chiavi API corrette.
+// ATTENZIONE: Questi valori DEVONO essere definiti nel tuo file .env.local
+// NON INSERIRE MAI LE CHIAVI DI PRODUZIONE DIRETTAMENTE NEL CODICE.
 
-// ATTENZIONE: Questo è l'ultimo passo!
-// L'UID Firebase del tuo utente amministratore. Per trovarlo:
-// 1. Accedi all'app come amministratore con le tue credenziali.
-// 2. Vai alla tua console Firebase -> Authentication.
-// 3. Troverai il tuo utente (es. vacinaletti93@hotmail.it) con il suo "User UID". Copialo e incollalo qui.
-// FIX: Explicitly type ADMIN_UID as a string to fix a comparison type error in BookingCalendar.tsx.
-export const ADMIN_UID: string = "QYqqr8fpLdarhvt7JfY8NhUsOq23"; 
-
-// Configurazione di Firebase: trovala nelle impostazioni del tuo progetto Firebase.
-// Vai su https://console.firebase.google.com/ -> Seleziona il tuo progetto -> Impostazioni progetto (icona ingranaggio)
-export const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyBs_cE6smOR1qvSpoc24kDY4uTRtQclPdQ",
-  authDomain: "gestionale-prenotazioni-lezio.firebaseapp.com",
-  projectId: "gestionale-prenotazioni-lezio",
-  storageBucket: "gestionale-prenotazioni-lezio.appspot.com",
-  messagingSenderId: "437487120297",
-  appId: "1:437487120297:web:30895af62079b5301a1eb8"
+// --- VALORI DI ESEMPIO PER L'AMBIENTE DI SVILUPPO ---
+// Per far funzionare l'app in questo ambiente, usiamo i valori di esempio
+// come fallback. In un progetto reale, questi verrebbero caricati da un file .env.
+const EXAMPLE_CONSTANTS = {
+  ADMIN_UID: "QYqqr8fpLdarhvt7JfY8NhUsOq23",
+  FIREBASE_API_KEY: "AIzaSyBs_cE6smOR1qvSpoc24kDY4uTRtQclPdQ",
+  FIREBASE_AUTH_DOMAIN: "gestionale-prenotazioni-lezio.firebaseapp.com",
+  FIREBASE_PROJECT_ID: "gestionale-prenotazioni-lezio",
+  FIREBASE_STORAGE_BUCKET: "gestionale-prenotazioni-lezio.appspot.com",
+  FIREBASE_MESSAGING_SENDER_ID: "437487120297",
+  FIREBASE_APP_ID: "1:437487120297:web:30895af62079b5301a1eb8",
+  GOOGLE_API_KEY: "AIzaSyBs_cE6smOR1qvSpoc24kDY4uTRtQclPdQ",
+  GOOGLE_CLIENT_ID: "437487120297-nt028l5ddba28bngpcs1nrhleho6k51h.apps.googleusercontent.com",
 };
 
-// Configurazione API di Google Calendar: crea un progetto su console.cloud.google.com,
-// abilita l'API di Google Calendar e crea le credenziali OAuth 2.0.
-// Vai su https://console.cloud.google.com/ -> Seleziona il tuo progetto -> API e servizi -> Credenziali
+
+// L'app non usa Vite, quindi `import.meta.env` non è disponibile. 
+// Verrà usato `process.env` per accedere alle variabili d'ambiente.
+export const ADMIN_UID: string = process.env.VITE_FIREBASE_ADMIN_UID || EXAMPLE_CONSTANTS.ADMIN_UID;
+
+export const FIREBASE_CONFIG = {
+  apiKey: process.env.VITE_FIREBASE_API_KEY || EXAMPLE_CONSTANTS.FIREBASE_API_KEY,
+  authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN || EXAMPLE_CONSTANTS.FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.VITE_FIREBASE_PROJECT_ID || EXAMPLE_CONSTANTS.FIREBASE_PROJECT_ID,
+  storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET || EXAMPLE_CONSTANTS.FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || EXAMPLE_CONSTANTS.FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.VITE_FIREBASE_APP_ID || EXAMPLE_CONSTANTS.FIREBASE_APP_ID
+};
+
 export const GOOGLE_API_CONFIG = {
-  // La tua chiave API per accedere alle API pubbliche di Google.
-  API_KEY: "AIzaSyBs_cE6smOR1qvSpoc24kDY4uTRtQclPdQ",
-  // Il tuo Client ID per l'autenticazione OAuth 2.0.
-  CLIENT_ID: "437487120297-nt028l5ddba28bngpcs1nrhleho6k51h.apps.googleusercontent.com",
-  // Gli "scope" definiscono le autorizzazioni che la tua app richiede.
-  // Qui chiediamo l'accesso completo ai calendari dell'utente.
+  API_KEY: process.env.VITE_GOOGLE_API_KEY || EXAMPLE_CONSTANTS.GOOGLE_API_KEY,
+  CLIENT_ID: process.env.VITE_GOOGLE_CLIENT_ID || EXAMPLE_CONSTANTS.GOOGLE_CLIENT_ID,
   SCOPES: "https://www.googleapis.com/auth/calendar"
 };
+
+// Controllo per avvisare lo sviluppatore se le variabili d'ambiente mancano
+if (!ADMIN_UID || !FIREBASE_CONFIG.apiKey || !GOOGLE_API_CONFIG.CLIENT_ID) {
+    console.warn(
+        "ATTENZIONE: Una o più variabili d'ambiente non sono state trovate. " +
+        "Assicurati di aver creato e configurato correttamente il file .env.local " +
+        "con tutte le credenziali necessarie."
+    );
+}

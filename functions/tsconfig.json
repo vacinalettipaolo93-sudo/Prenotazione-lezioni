@@ -8,10 +8,10 @@
     "strict": true,
     "target": "es2021",
     "esModuleInterop": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "rootDir": "src"
   },
-  "compileOnSave": true,
-  "include": [
-    "src"
+  "files": [
+    "src/index.ts"
   ]
 }
