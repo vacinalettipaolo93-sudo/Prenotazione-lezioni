@@ -61,8 +61,7 @@
     <div class="card" role="main" aria-labelledby="title">
       <h1 id="title">Gestione Prenotazioni — pagina temporanea</h1>
       <p>
-        Hai raggiunto una versione di fallback del sito. I file sorgente (index.tsx / assets) non sono disponibili nel deploy corrente,
-        quindi questa pagina viene mostrata per evitare errori 404 in console.
+        Questa è una pagina di fallback. I file sorgente/build non sono disponibili nel deploy corrente, quindi mostriamo questa pagina per evitare 404 in console.
       </p>
 
       <a class="btn" href="/" onclick="location.reload(); return false;">Ricarica la pagina</a>
@@ -70,13 +69,13 @@
       <div class="notes">
         <strong>Cosa fare dopo (consigliato):</strong>
         <ul>
-          <li>1) Verifica i file di build Vite nella pipeline di deploy (assicurati che la build generi la cartella dist con gli asset).</li>
-          <li>2) Se usi Vercel, assicurati che lo script di build produca gli asset e che Vercel serva la cartella corretta.</li>
-          <li>3) Quando vuoi ripristinare l'app React completa, ripristineremo insieme index.html che carica i bundle generati da Vite.</li>
+          <li>1) Verifica la pipeline di build (Vite) che generi la cartella dist con gli asset.</li>
+          <li>2) Su Vercel, assicurati che lo script di build produca gli asset e che Vercel serva la cartella corretta.</li>
+          <li>3) Per ripristinare l'app React completa, ripristineremo insieme index.html che carica i bundle generati da Vite.</li>
         </ul>
       </div>
 
-      <div class="small">Se vuoi, esegui ora: git add index.html && git commit -m "chore: add static fallback index.html" && git push</div>
+      <div class="small">Comando rapido suggerito: git add index.html && git commit -m "chore: add static fallback index.html" && git push</div>
     </div>
   </div>
 </body>
